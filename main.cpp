@@ -4,6 +4,8 @@
 #include <iostream>
 #include <fstream>
 #include <thread>
+#include <vector>
+#include <functional>
 
 static int getTeamCount(char* filename) {
     std::ifstream csv(filename);
@@ -74,6 +76,7 @@ static void readCSV(char* filename, std::string teams[], long long *season, long
         }
         if (line[line.length()-1] == ',') {
             unplayed[0] += (1LL << ind);
+            unplayedCount[0] += 1;
             ind += 1;
         }
         row += 1;
@@ -98,7 +101,7 @@ static long long getSeason(long long season, long long unplayed, long long index
     return season | mask;
 }
 
-static void calculateSeason(long long season, int order[], int highSeed[], int lowSeed[], int teamCount, const long long t1Masks[], const long long t2Masks[], int shifts[]) {
+static void calculateSeason(long long season, int order[], int highSeed[], int lowSeed[], int teamCount, const long long *t1Masks, const long long *t2Masks, int *shifts) {
     long long results[teamCount];
     int wins[teamCount];
     int tiebreakers[teamCount];
@@ -140,14 +143,14 @@ static void calculateSeason(long long season, int order[], int highSeed[], int l
         int newMax = i;
         for (int j = i-1; j >= 0; j --) {
             if (wins[order[i]] == wins[order[j]] and tiebreakers[order[i]] == tiebreakers[order[j]]) {
-                newMin = i;
+                newMin = j;
             }else {
                 break;
             }
         }
         for (int j = i+1; j < teamCount; j ++) {
             if (wins[order[i]] == wins[order[j]] and tiebreakers[order[i]] == tiebreakers[order[j]]) {
-                newMax = i;
+                newMax = j;
             }else {
                 break;
             }
@@ -157,7 +160,7 @@ static void calculateSeason(long long season, int order[], int highSeed[], int l
     }
 }
 
-static void calculateRangeStats(long long increment, int pos, long long season, long long unplayed, int teamCount, int unplayedCount, const long long t1Masks[], const long long t2Masks[], const int shifts[], int *istats[], float *fstats[]) {
+static void calculateRangeStats(long long increment, int pos, long long season, long long unplayed, int teamCount, int unplayedCount, long long *t1Masks, long long *t2Masks, int *shifts, int *istats, double *fstats) {
     int order[teamCount];
     int highSeed[teamCount];
     int lowSeed[teamCount];
@@ -167,18 +170,21 @@ static void calculateRangeStats(long long increment, int pos, long long season, 
     if (start >= maxSeason) {
         return;
     }
-    for (int u = start; u < end; u++) {
-        calculateSeason(getSeason(season, unplayed, u, unplayedCount), order, highSeed, lowSeed, teamCount, t1Masks, t2Masks, shifts);
+    for (long long u = start; u < end; u++) {
+        long long nSeason = getSeason(season, unplayed, u, unplayedCount);
+        calculateSeason(nSeason, order, highSeed, lowSeed, teamCount, t1Masks, t2Masks, shifts);
 
         for (int i = 0; i < 10; i ++) {
             int team = order[i];
-            float seed = (highSeed[team] + lowSeed[team])/2.0f;
-            fstats[pos][2*team] += seed;
-            istats[pos][2*team] = std::min(istats[pos][2*team], highSeed[team]);
-            istats[pos][2*team + 1] = std::max(istats[pos][2*team + 1], lowSeed[team]);
-            float coveredRange = std::max(5 - highSeed[team] + 1, 0);
-            float total = lowSeed[team] - highSeed[team] + 1;
-            fstats[pos][2*team + 1] += std::min(coveredRange/total, 1.0f);
+            double seed = (highSeed[team] + lowSeed[team])/2.0f;
+            double mult;
+// m = (i0...in)/n, m1 = (n)/(n+1) * m + (in1)/(n+1)
+            fstats[pos*teamCount*2 + 2*team] += seed;
+            istats[pos*teamCount*2 + 2*team] = std::min(istats[pos*teamCount*2 + 2*team], highSeed[team]);
+            istats[pos*teamCount*2 + 2*team + 1] = std::max(istats[pos*teamCount*2 + 2*team + 1], lowSeed[team]);
+            double coveredRange = std::max(5 - highSeed[team] + 1, 0);
+            double total = lowSeed[team] - highSeed[team] + 1;
+            fstats[pos*teamCount*2 + 2*team + 1] += std::min(coveredRange/total, 1.0);
         }
     }
 }
@@ -187,7 +193,7 @@ int main(int argc, char *argv[]) {
     char* filename = argv[argc-1];
     bool CUDA = false;
     int n = 0;
-    int threads = 1;
+    int threads = std::thread::hardware_concurrency();
     bool FOLDY = false;
     bool QM = false;
     if (argc == 1) {
@@ -226,14 +232,17 @@ int main(int argc, char *argv[]) {
     int *unplayedCount = (int*)malloc(sizeof(int));
     readCSV(filename, teams, season, unplayed, unplayedCount);
 
-    int shifts[teamCount];
-    long long t1Masks[teamCount];
-    long long t2Masks[teamCount];
+    int *shifts = (int*) malloc(teamCount * sizeof(int));
+    long long *t1Masks = (long long *)malloc(teamCount * sizeof(long long));
+    long long *t2Masks = (long long *)malloc(teamCount * sizeof(long long));
     int ind = 0;
     for (int i = 0; i < teamCount; i++) {
-        shifts[i] = -0.5 * i * i + (teamCount - 1.5) * i - 1;
         t1Masks[i] = 0LL;
         t2Masks[i] = 0LL;
+        shifts[i] = -0.5 * i * i + (teamCount - 1.5) * i - 1;
+    }
+
+    for (int i = 0; i < teamCount; i++) {
         for (int j = i+1; j < teamCount; j++) {
             t2Masks[i] += 1LL << ind;
             t1Masks[j] += 1LL << ind;
@@ -247,12 +256,51 @@ int main(int argc, char *argv[]) {
         increment += 1;
     }
 
-    std::thread simThreads[threads];
-    int istats[threads][teamCount];
-    float fstats[threads][teamCount];
+    std::vector<std::thread> threadsVec;
+    threadsVec.reserve(threads);
+
+    int *istats = (int*)malloc(threads * teamCount * sizeof(int) * 2);
+    double *fstats = (double*)malloc(threads * teamCount * sizeof(double) * 2);
     for (int i = 0; i < threads; i++) {
-        simThreads[i] = std::thread(calculateRangeStats, increment, i, season[0], unplayed[0], teamCount, unplayedCount[0], t1Masks, t2Masks, shifts, &istats, &fstats);
-        simThreads[i].join();
+        for (int j = 0; j < teamCount; j++) {
+            istats[i * teamCount * 2 + j * 2] = 9;
+            istats[i * teamCount * 2 + j * 2 + 1] = 0;
+            fstats[i * teamCount * 2 + j * 2] = 0.0;
+            fstats[i * teamCount * 2 + j * 2 + 1] = 0.0;
+        }
+        threadsVec.emplace_back(calculateRangeStats, increment, i, season[0], unplayed[0], teamCount, unplayedCount[0], t1Masks, t2Masks, shifts, istats, fstats);
+    }
+
+    for (int i = 0; i < threads; i++) {
+        threadsVec.at(i).join();
+    }
+
+    int mins[teamCount];
+    int maxs[teamCount];
+    double seeds[teamCount];
+    double prob[teamCount];
+
+    for (int i = 0; i < teamCount; i++) {
+        mins[i] = 9;
+        maxs[i] = 0;
+        seeds[i] = 0;
+        prob[i] = 0;
+
+        for (int j = 0; j < threads; j++) {
+            mins[i] = std::min(mins[i], istats[j*teamCount*2 + i*2]);
+            maxs[i] = std::max(maxs[i], istats[j*teamCount*2 + i*2 + 1]);
+            seeds[i] += fstats[j*teamCount*2 + i*2];
+            prob[i] += fstats[j*teamCount*2 + i*2 + 1];
+        }
+
+        seeds[i] /= total;
+        prob[i] /= total;
+    }
+
+    std::cout << "Thread count: " << threads << ", Increment: " << increment << ", Unplayed Count: " << unplayedCount[0] << std::endl << std::endl;
+
+    for (int i = 0; i < teamCount; i++) {
+        std::printf("%s:\n\tAvg. Seed: %f\n\tMin. Seed: %d\n\tMax. Seed: %d\n\tPlayoff Probability: %f\n\n",teams[i].c_str(), seeds[i]+1, mins[i]+1, maxs[i]+1, prob[i]);
     }
 
     return 0;
