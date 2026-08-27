@@ -1,0 +1,11 @@
+NAST,FURT,SCP,FD,PNTH,DAD,CUTE,BOSS,SNCK,QST,LION
+FURT,X,,1,,1,1,1,1,,
+SCP,,X,,1,,,1,1,1,1
+FD,0,,X,,0,1,1,,,1
+PNTH,,0,,X,1,1,,1,1,
+DAD,0,,1,0,X,,,,1,1
+CUTE,0,,0,0,,X,1,,,1
+BOSS,0,0,0,,,0,X,,1,
+SNCK,0,0,,0,,,,X,1,1
+QST,,0,,0,0,,0,0,X,
+LION,,0,0,,0,0,,0,,X

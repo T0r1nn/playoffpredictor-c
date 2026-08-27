@@ -1,0 +1,9 @@
+NAST,FURT,SCP,FD,PNTH,DAD,CUTE,BOSS,SNCK
+FURT,X,,,,,,,
+SCP,,X,,,,,,
+FD,,,X,,,,,
+PNTH,,,,X,,,,
+DAD,,,,,X,,,
+CUTE,,,,,,X,,
+BOSS,,,,,,,X,
+SNCK,,,,,,,,X
