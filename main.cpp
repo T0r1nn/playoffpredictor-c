@@ -5,7 +5,6 @@
 #include <fstream>
 #include <thread>
 #include <vector>
-#include <functional>
 
 static int getTeamCount(char* filename) {
     std::ifstream csv(filename);
@@ -90,9 +89,9 @@ static long long getSeason(long long season, long long unplayed, long long index
     long long y = unplayed;
     long long mask = 0;
     while (x > 0) {
-        int res = x & 1LL;
-        long long z = y & (y-1);
-        long long maskAdd = res == 0 ? 0LL : y-z;
+        int res = x & 1LL; // if rightmost bit is 1, result = 1
+        long long z = y & (y-1); // z with the rightmost 1 flipped to 0
+        long long maskAdd = res == 0 ? 0LL : y-z; //
         mask += maskAdd;
         y = z;
         x = x>>1;
@@ -160,7 +159,7 @@ static void calculateSeason(long long season, int order[], int highSeed[], int l
     }
 }
 
-static void calculateRangeStats(long long increment, int pos, long long season, long long unplayed, int teamCount, int unplayedCount, long long *t1Masks, long long *t2Masks, int *shifts, int *istats, double *fstats) {
+static void calculateRangeStats(long long increment, int pos, long long season, long long unplayed, int teamCount, int unplayedCount, long long *t1Masks, long long *t2Masks, int *shifts, int *istats, long double *fstats) {
     int order[teamCount];
     int highSeed[teamCount];
     int lowSeed[teamCount];
@@ -177,8 +176,6 @@ static void calculateRangeStats(long long increment, int pos, long long season, 
         for (int i = 0; i < 10; i ++) {
             int team = order[i];
             double seed = (highSeed[team] + lowSeed[team])/2.0f;
-            double mult;
-// m = (i0...in)/n, m1 = (n)/(n+1) * m + (in1)/(n+1)
             fstats[pos*teamCount*2 + 2*team] += seed;
             istats[pos*teamCount*2 + 2*team] = std::min(istats[pos*teamCount*2 + 2*team], highSeed[team]);
             istats[pos*teamCount*2 + 2*team + 1] = std::max(istats[pos*teamCount*2 + 2*team + 1], lowSeed[team]);
@@ -260,7 +257,7 @@ int main(int argc, char *argv[]) {
     threadsVec.reserve(threads);
 
     int *istats = (int*)malloc(threads * teamCount * sizeof(int) * 2);
-    double *fstats = (double*)malloc(threads * teamCount * sizeof(double) * 2);
+    long double *fstats = (long double*)malloc(threads * teamCount * sizeof(long double) * 2);
     for (int i = 0; i < threads; i++) {
         for (int j = 0; j < teamCount; j++) {
             istats[i * teamCount * 2 + j * 2] = 9;
@@ -302,6 +299,5 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < teamCount; i++) {
         std::printf("%s:\n\tAvg. Seed: %f\n\tMin. Seed: %d\n\tMax. Seed: %d\n\tPlayoff Probability: %f\n\n",teams[i].c_str(), seeds[i]+1, mins[i]+1, maxs[i]+1, prob[i]);
     }
-
     return 0;
 }
