@@ -3,4 +3,8 @@ project(playoffpredictor)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_executable(playoffpredictor main.cpp)
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address")
+
+add_executable(playoffpredictor main.cpp
+        qm.cpp
+        qm.h)
