@@ -8,11 +8,10 @@
 #include <vector>
 
 
-class qm {
-public:
-    static std::string getStrFromQm(int n, std::vector<long long> qm, std::vector<std::string> posNames, std::vector<std::string> negNames);
+namespace  qm {
+    std::string getStrFromQm(int n, std::vector<long long> qm, std::vector<std::string> posNames, std::vector<std::string> negNames);
 
-    static std::vector<long long> calcQm(int n, const std::vector<long long>& terms);
+    std::vector<long long> calcSparseQm(int n, const std::vector<long long>& terms);
 };
 
 

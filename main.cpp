@@ -4,6 +4,7 @@
 #include <format>
 #include <iostream>
 #include <fstream>
+#include <random>
 #include <thread>
 #include <vector>
 
@@ -226,8 +227,8 @@ static void processQmResults(int increment, int pos, const std::vector<long long
     for (int item = start; item < end; item++) {
         int seed = item%teamCount;
         int team = (item - seed)/teamCount;
-        results->at(team*teamCount*2 + seed*2) = qm::getStrFromQm(n, qm::calcQm(n, tbMatches[team*teamCount + seed]), posNames, negNames);
-        results->at(team*teamCount*2 + seed*2+1) = qm::getStrFromQm(n, qm::calcQm(n, ntbMatches[team*teamCount + seed]), posNames, negNames);
+        results->at(team*teamCount*2 + seed*2) = qm::getStrFromQm(n, qm::calcSparseQm(n, tbMatches[team*teamCount + seed]), posNames, negNames);
+        results->at(team*teamCount*2 + seed*2+1) = qm::getStrFromQm(n, qm::calcSparseQm(n, ntbMatches[team*teamCount + seed]), posNames, negNames);
     }
 }
 
@@ -242,17 +243,20 @@ int main(int argc, char *argv[]) {
     long long n = 0;
     int threads = static_cast<int>(std::thread::hardware_concurrency());
     bool FOLDY = false;
+    int benchmarkTC = 0;
+    int benchmarkUM = 0;
     bool QM = false;
     if (argc == 1) {
         printf("Usage:\n"
                "\tplayoffpredictor [options] <filename>\n"
                "\n"
                "Options:\n"
-               "\t--cuda\t\tEnables CUDA mode to accelerate performance.\n"
-               "\t-t <count>\tSets the amount of threads to use. If CUDA is enabled, each thread is a block of 256.\n"
-               "\t--foldy\t\tEnables Foldy mode, generating a foldy sheet as a .csv file.\n"
-               "\t-n <count>\tInstead of running every season, instead runs n random seasons.\n"
-               "\t--qm\t\tUses the Quine-McCluskey algorithm to calculate each team's route to each seed.");
+               "\t--cuda\t\t\t\tEnables CUDA mode to accelerate performance.\n"
+               "\t-t <count>\t\t\tSets the amount of threads to use. If CUDA is enabled, each thread is a block of 256.\n"
+               "\t--foldy\t\t\t\tEnables Foldy mode, generating a foldy sheet as a .csv file.\n"
+               "\t-n <count>\t\t\tInstead of running every season, instead runs n random seasons.\n"
+               "\t--qm\t\t\t\tUses the Quine-McCluskey algorithm to calculate each team's route to each seed.\n"
+               "\t-bm <teamCount> <matchCount>\tWill remove the need for a file and instead generate a random season with <teamCount> teams and <matchCount> matches remaining.");
         return 0;
     }
     for (int i = 1; i < argc-1; i++) {
@@ -267,18 +271,20 @@ int main(int argc, char *argv[]) {
             i+=1;
         } else if (strcmp(argv[i], "-n") == 0) {
             n = std::stoll(argv[i+1]);
+        } else if (strcmp(argv[i], "-bm") == 0){
+            benchmarkTC = std::stoi(argv[i+1]);
+            benchmarkUM = std::stoi(argv[i+2]);
+            i+=2;
         } else {
             throw std::invalid_argument(std::format("Unsupported argument: {}", argv[i]));
         }
     }
     auto processedArgs = std::chrono::high_resolution_clock::now();
-    const int teamCount = getTeamCount(filename);
+    const int teamCount = benchmarkTC == 0 ? getTeamCount(filename) : benchmarkTC;
     std::vector<std::string> teams(teamCount);
     auto *season = static_cast<long long *>(malloc(sizeof(long long)));
     auto *unplayed = static_cast<long long *>(malloc(sizeof(long long)));
     int *unplayedCount = static_cast<int *>(malloc(sizeof(int)));
-    readCSV(filename, &teams, season, unplayed, unplayedCount);
-    auto readFile = std::chrono::high_resolution_clock::now();
 
     int *shifts = static_cast<int *>(malloc(teamCount * sizeof(int)));
     auto *t1Masks = static_cast<long long *>(malloc(teamCount * sizeof(long long)));
@@ -297,6 +303,79 @@ int main(int argc, char *argv[]) {
             ind += 1;
         }
     }
+
+    if (benchmarkTC == 0) {
+        readCSV(filename, &teams, season, unplayed, unplayedCount);
+    } else {
+        std::random_device device;
+        std::size_t seed;
+        if (device.entropy()) {
+            seed = device();
+        } else {
+            seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+        }
+        std::mt19937 gen(seed);
+        std::uniform_int_distribution<int> rng(0, 1);
+
+        int totalMatches = teamCount * (teamCount - 1) / 2;
+        for (int i = 0; i < teamCount; i+=1) {
+            teams.push_back(std::format("Team {}", i));
+        }
+        unplayedCount[0] = benchmarkUM;
+        season[0] = 0;
+        unplayed[0] = 0;
+        std::vector<int> loop;
+        loop.assign(teams.size(), 0);
+        for (int i = 0; i < teamCount; i++) {
+            loop[i] = i;
+        }
+        for (int i = 0; i < totalMatches - benchmarkUM; i++) {
+            if (i%5 == 0) {
+                int temp = loop[teamCount-1];
+                for (int j = 2; j < teamCount; j++) {
+                    loop[j] = loop[j-1];
+                }
+                loop[1] = temp;
+            }
+
+            int result = rng(gen);
+            int t1Ind = i%(teamCount/2);
+            int t2Ind = teamCount - i%(teamCount/2) - 1;
+
+            int a = std::min(loop[t1Ind], loop[t2Ind]);
+            int b = std::max(loop[t1Ind], loop[t2Ind]);
+
+            int shift = b + shifts[a];
+
+            std::printf("%d, %d, %d\n", a, b, shift);
+
+            season[0] |= result << shift;
+        }
+        for (int i = totalMatches - benchmarkUM; i < totalMatches; i++) {
+            if (i%5 == 0) {
+                int temp = loop[teamCount-1];
+                for (int j = 2; j < teamCount; j++) {
+                    loop[j] = loop[j-1];
+                }
+                loop[1] = temp;
+            }
+
+            int result = rng(gen);
+            int t1Ind = i%(teamCount/2);
+            int t2Ind = teamCount - i%(teamCount/2) - 1;
+
+            int a = std::min(loop[t1Ind], loop[t2Ind]);
+            int b = std::max(loop[t1Ind], loop[t2Ind]);
+
+            int shift = b + shifts[a];
+
+            std::printf("%d, %d, %d\n", a, b, shift);
+
+            unplayed[0] |= result << shift;
+        }
+        return 0;
+    }
+    auto readFile = std::chrono::high_resolution_clock::now();
 
     long long total = 1LL << unplayedCount[0];
     long long increment = total/threads;
