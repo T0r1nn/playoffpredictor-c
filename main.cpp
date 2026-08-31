@@ -330,9 +330,9 @@ int main(int argc, char *argv[]) {
             loop[i] = i;
         }
         for (int i = 0; i < totalMatches - benchmarkUM; i++) {
-            if (i%5 == 0) {
+            if (i%5 == 0 && i != 0) {
                 int temp = loop[teamCount-1];
-                for (int j = 2; j < teamCount; j++) {
+                for (int j = teamCount-1; j >= 2; j--) {
                     loop[j] = loop[j-1];
                 }
                 loop[1] = temp;
@@ -346,15 +346,13 @@ int main(int argc, char *argv[]) {
             int b = std::max(loop[t1Ind], loop[t2Ind]);
 
             int shift = b + shifts[a];
-
-            std::printf("%d, %d, %d\n", a, b, shift);
 
             season[0] |= result << shift;
         }
         for (int i = totalMatches - benchmarkUM; i < totalMatches; i++) {
-            if (i%5 == 0) {
+            if (i%5 == 0 && i != 0) {
                 int temp = loop[teamCount-1];
-                for (int j = 2; j < teamCount; j++) {
+                for (int j = teamCount-1; j >= 2; j--) {
                     loop[j] = loop[j-1];
                 }
                 loop[1] = temp;
@@ -369,11 +367,8 @@ int main(int argc, char *argv[]) {
 
             int shift = b + shifts[a];
 
-            std::printf("%d, %d, %d\n", a, b, shift);
-
             unplayed[0] |= result << shift;
         }
-        return 0;
     }
     auto readFile = std::chrono::high_resolution_clock::now();
 
