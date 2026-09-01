@@ -15,8 +15,6 @@
 
 namespace  qm {
     std::string getStrFromQm(int n, std::vector<long long> terms, std::vector<std::string> posNames, std::vector<std::string> negNames);
-
-    std::vector<uint128> calcSparseQm(int n, const std::vector<long long>& terms);
 };
 
 

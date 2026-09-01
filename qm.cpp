@@ -172,7 +172,7 @@ static auto convert_back(uint128 prime, int n, long long arr[]) {
 }
 
 namespace qm {
-    std::vector<uint128> calcSparseQm(int n, const std::vector<long long>& terms) {
+    HashSet calcSparseQm(int n, const std::vector<long long>& terms) {
         HashSet S;
         HashSet S2;
         HashSet primes;
@@ -237,7 +237,7 @@ namespace qm {
         S.clear();
         S2.clear();
 
-        return primes.contents;
+        return primes;
     }
 
     std::vector<long long> phase2Qm(int n, HashSet primes, std::vector<long long>& terms) {
@@ -598,11 +598,14 @@ namespace qm {
     }
 
     std::string getStrFromQm(int n, std::vector<long long> terms, std::vector<std::string> posNames, std::vector<std::string> negNames) {
-        auto qmStart = std::chrono::high_resolution_clock::now();
-        auto qm = calcDenseQm(n, terms);
+        auto dqmStart = std::chrono::high_resolution_clock::now();
+        auto dqm = calcDenseQm(n, terms);
+
+        auto sqmStart = std::chrono::high_resolution_clock::now();
+        auto sqm = calcSparseQm(n, terms);
 
         auto qmPhase2 = std::chrono::high_resolution_clock::now();
-        auto simplified = skipPhase2(n, qm);
+        auto simplified = skipPhase2(n, dqm);
 
         if (simplified.size() == 2 && simplified[1] == (1ll << n) - 1) {
             return "Always";
@@ -618,16 +621,17 @@ namespace qm {
         auto result = treeToStr(distributedTree);
         auto end = std::chrono::high_resolution_clock::now();
 
-        // auto totalTime = (end - qmStart).count()/1.0e6;
-        // auto qm1Time = (qmPhase2 - qmStart).count()/1.0e6;
-        // auto qm2Time = (treeCreationStart - qmPhase2).count()/1.0e6;
-        // auto treeTime = (distributeStart - treeCreationStart).count()/1.0e6;
-        // auto distTime = (stringStart - distributeStart).count()/1.0e6;
-        // auto strTime = (end - stringStart).count()/1.0e6;
-        //
-        // auto density = terms.size() / ((1 << n) - 1.0);
-        //
-        // std::printf("Density: %f\nTotal QM Time: %f\n\tQM 1: %f\n\tQM 2: %f\n\tTree Creation: %f\n\tTree Simplification: %f\n\tString Creation: %f\n\n", density, totalTime, qm1Time, qm2Time, treeTime, distTime, strTime);
+        auto totalTime = (end - dqmStart).count()/1.0e6;
+        auto dqm1Time = (sqmStart - dqmStart).count()/1.0e6;
+        auto sqm1Time = (qmPhase2 - sqmStart).count()/1.0e6;
+        auto qm2Time = (treeCreationStart - qmPhase2).count()/1.0e6;
+        auto treeTime = (distributeStart - treeCreationStart).count()/1.0e6;
+        auto distTime = (stringStart - distributeStart).count()/1.0e6;
+        auto strTime = (end - stringStart).count()/1.0e6;
+
+        auto density = terms.size() / ((1 << n) - 1.0);
+
+        std::printf("Density: %f\nTotal QM Time: %f\n\tDQM 1: %f\n\tSQM 1: %f\n\tQM 2: %f\n\tTree Creation: %f\n\tTree Simplification: %f\n\tString Creation: %f\n\n", density, totalTime, dqm1Time, sqm1Time, qm2Time, treeTime, distTime, strTime);
 
         return result;
     }

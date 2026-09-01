@@ -513,15 +513,15 @@ int main(int argc, char *argv[]) {
             inc += 1;
         }
 
-        // qmResults.at(0) = qm::getStrFromQm(unplayedCount[0], ntbseasons[0], posNames, negNames);
+        qmResults.at(0) = qm::getStrFromQm(unplayedCount[0], ntbseasons[0], posNames, negNames);
 
-        for (int i = 0; i < threads; i++) {
-            threadsVec.emplace_back(processQmResults, inc, i, tbseasons, ntbseasons, &qmResults,teamCount, unplayedCount[0], posNames, negNames);
-        }
-
-        for (int i = 0; i < threads; i++) {
-            threadsVec.at(i).join();
-        }
+        // for (int i = 0; i < threads; i++) {
+        //     threadsVec.emplace_back(processQmResults, inc, i, tbseasons, ntbseasons, &qmResults,teamCount, unplayedCount[0], posNames, negNames);
+        // }
+        //
+        // for (int i = 0; i < threads; i++) {
+        //     threadsVec.at(i).join();
+        // }
 
         if (benchmarkTC == 0) {
             for (int team = 0; team < teamCount; team++) {
