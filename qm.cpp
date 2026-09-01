@@ -5,18 +5,14 @@
 #include "qm.h"
 
 #include <algorithm>
+#include <assert.h>
 #include <bitset>
+#include <chrono>
 #include <format>
 #include <functional>
 #include <map>
 #include <ranges>
 #include <utility>
-#if defined(_MSC_VER)
-#include <__msvc_int128.hpp>
-#define uint128 std::_Unsigned128
-#else
-#define uint128 __uint128_t
-#endif
 
 static int table[] = {-1, 0, 1, 72, 2, 46, 73, 96, 3, 14, 47, 56, 74, 18, 97, 118, 4, 43, 15, 35, 48, 38, 57, 23, 75, 92, 19, 86, 98, 51, 119, 29, 5, -1, 44, 12, 16, 41, 36, 90, 49, 126, 39, 124, 58, 60, 24, 105, 76, 62, 93, 115, 20, 26, 87, 102, 99, 107, 52, 82, 120, 78, 30, 110, 6, 64, -1, 71, 45, 95, 13, 55, 17, 117, 42, 34, 37, 22, 91, 85, 50, 28, 127, 11, 40, 89, 125, 123, 59, 104, 61, 114, 25, 101, 106, 81, 77, 109, 63, 70, 94, 54, 116, 33, 21, 84, 27, 10, 88, 122, 103, 113, 100, 80, 108, 69, 53, 32, 83, 9, 121, 112, 79, 68, 31, 8, 111, 67, 7, 66, 65};
 
@@ -176,7 +172,7 @@ static auto convert_back(uint128 prime, int n, long long arr[]) {
 }
 
 namespace qm {
-    std::vector<long long> calcSparseQm(int n, const std::vector<long long>& terms) {
+    std::vector<uint128> calcSparseQm(int n, const std::vector<long long>& terms) {
         HashSet S;
         HashSet S2;
         HashSet primes;
@@ -241,6 +237,10 @@ namespace qm {
         S.clear();
         S2.clear();
 
+        return primes.contents;
+    }
+
+    std::vector<long long> phase2Qm(int n, HashSet primes, std::vector<long long>& terms) {
         std::vector<uint128> finalPrimes;
         std::vector<uint128> victim;
         std::vector<uint128> nextVictim;
@@ -304,6 +304,141 @@ namespace qm {
         }
 
         return result;
+    }
+
+    std::vector<long long> skipPhase2(int n, HashSet p) {
+        std::vector<long long> result = std::vector<long long>();
+        for (uint128 finalPrime : p.contents) {
+            long long minterm[2];
+            convert_back(finalPrime, n, minterm);
+            result.push_back(minterm[0]);
+            result.push_back(minterm[1]);
+        }
+
+        return result;
+    }
+
+    static inline uint64_t pow3(int e) {
+        assert(e >= 0);
+        uint64_t ret = 1;
+        uint64_t cur = 3;
+        while (e) {
+            if (e&1) {
+                ret = ret * cur;
+            }
+            e >>= 1;
+            cur *= cur;
+        }
+        return ret;
+    }
+
+    static uint64_t toTernary(uint64_t term, int n) {
+        uint64_t result = 0;
+        for (int i = 0; i < n; i++) {
+            result = result*3 + ((term >> i)&1);
+        }
+        return result;
+    }
+
+    const size_t shifts[] = {1,3,9,27,81};
+    const std::bitset<256> masks[] = {
+        std::bitset<256>("001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001001"),
+        std::bitset<256>("000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111000000111"),
+        std::bitset<256>("000000000000000000111111111000000000000000000111111111000000000000000000111111111000000000000000000111111111000000000000000000111111111000000000000000000111111111000000000000000000111111111000000000000000000111111111000000000000000000111111111"),
+        std::bitset<256>("000000000000000000000000000000000000000000000000000000111111111111111111111111111000000000000000000000000000000000000000000000000000000111111111111111111111111111000000000000000000000000000000000000000000000000000000111111111111111111111111111"),
+        std::bitset<256>("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000111111111111111111111111111111111111111111111111111111111111111111111111111111111")
+    };
+
+    HashSet calcDenseQm(int n, const std::vector<long long>& terms) {
+        int nh = n-5;
+
+        std::vector<std::bitset<256>> S;
+        uint64_t block_size = nh > 0 ? pow3(nh) : 1;
+
+        S.resize(block_size);
+
+        for (long long term : terms) {
+            uint64_t idx = toTernary(term, n);
+            S[idx/243][idx%243] = 1;
+        }
+
+        {
+            size_t step = 1;
+            for (int i = 1; i <= nh; i++) {
+                size_t shift = step;
+                step *= 3;
+                for (size_t b = 0; b < block_size; b+=step) {
+                    for (size_t c = 0; c < shift; c++) {
+                        size_t id_s = b+c;
+                        size_t id_t = id_s + shift;
+                        size_t id_u = id_t + shift;
+                        S[id_u] |= S[id_s] & S[id_u];
+                    }
+                }
+            }
+        }
+        {
+            for (auto &Sa : S) {
+                for (int i = 0; i < 5; i++) {
+                    auto mask = masks[i];
+                    auto shift = shifts[i];
+
+                    auto s = Sa & mask;
+                    auto t = (Sa >> shift) & mask;
+                    auto u = (Sa >> (shift * 2)) & mask;
+                    u |= s & t;
+                    Sa = s | (t << shift) | (u << (shift * 2));
+                }
+            }
+        }
+        {
+            size_t step = 1;
+            for (int i = 1; i <= nh; i++) {
+                size_t shift = step;
+                step *= 3;
+                for (size_t b = 0; b < block_size; b+=step) {
+                    for (size_t c = 0; c < shift; c++) {
+                        size_t id_s = b+c;
+                        size_t id_t = id_s + shift;
+                        size_t id_u = id_t + shift;
+                        auto tmp = ~S[id_u];
+                        S[id_s] &= tmp;
+                        S[id_t] &= tmp;
+                    }
+                }
+            }
+        }
+        {
+            for (auto &Sa : S) {
+                for (int i = 0; i < 5; i++) {
+                    auto mask = masks[i];
+                    auto shift = shifts[i];
+
+                    auto s = Sa & mask;
+                    auto t = (Sa >> shift) & mask;
+                    auto u = (Sa >> (shift * 2)) & mask;
+                    auto iu = ~u;
+                    s &= iu;
+                    t &= iu;
+                    Sa = s | (t << shift) | (u << (shift * 2));
+                }
+            }
+        }
+
+        //Now S[index] should be 1 for each prime implicant
+        HashSet primes;
+        for (uint64_t term = 0; term < block_size * 243; term ++) {
+            if (S[term/243][term%243]) {
+                uint128 prime = 0;
+                uint64_t t2 = term;
+                for (int i = 0; i < n; i++) {
+                    prime = (prime << 2) + (t2%3);
+                    t2/=3;
+                }
+               primes.insert(prime);
+            }
+        }
+        return primes;
     }
 
     class Node {
@@ -462,15 +597,38 @@ namespace qm {
         return tree;
     }
 
-    std::string getStrFromQm(int n, std::vector<long long> qm, std::vector<std::string> posNames, std::vector<std::string> negNames) {
-        if (qm.size() == 2 && qm[1] == (1ll << n) - 1) {
+    std::string getStrFromQm(int n, std::vector<long long> terms, std::vector<std::string> posNames, std::vector<std::string> negNames) {
+        auto qmStart = std::chrono::high_resolution_clock::now();
+        auto qm = calcDenseQm(n, terms);
+
+        auto qmPhase2 = std::chrono::high_resolution_clock::now();
+        auto simplified = skipPhase2(n, qm);
+
+        if (simplified.size() == 2 && simplified[1] == (1ll << n) - 1) {
             return "Always";
         }
 
-        std::string result = treeToStr(distribute(createTree(n, std::move(qm), std::move(posNames), std::move(negNames))));
-        if (!result.empty()) {
-            result = "\n\t\t"+result;
-        }
+        auto treeCreationStart = std::chrono::high_resolution_clock::now();
+        auto tree = createTree(n, std::move(simplified), std::move(posNames), std::move(negNames));
+
+        auto distributeStart = std::chrono::high_resolution_clock::now();
+        auto distributedTree = distribute(tree);
+
+        auto stringStart = std::chrono::high_resolution_clock::now();
+        auto result = treeToStr(distributedTree);
+        auto end = std::chrono::high_resolution_clock::now();
+
+        // auto totalTime = (end - qmStart).count()/1.0e6;
+        // auto qm1Time = (qmPhase2 - qmStart).count()/1.0e6;
+        // auto qm2Time = (treeCreationStart - qmPhase2).count()/1.0e6;
+        // auto treeTime = (distributeStart - treeCreationStart).count()/1.0e6;
+        // auto distTime = (stringStart - distributeStart).count()/1.0e6;
+        // auto strTime = (end - stringStart).count()/1.0e6;
+        //
+        // auto density = terms.size() / ((1 << n) - 1.0);
+        //
+        // std::printf("Density: %f\nTotal QM Time: %f\n\tQM 1: %f\n\tQM 2: %f\n\tTree Creation: %f\n\tTree Simplification: %f\n\tString Creation: %f\n\n", density, totalTime, qm1Time, qm2Time, treeTime, distTime, strTime);
+
         return result;
     }
 }

@@ -227,8 +227,8 @@ static void processQmResults(int increment, int pos, const std::vector<long long
     for (int item = start; item < end; item++) {
         int seed = item%teamCount;
         int team = (item - seed)/teamCount;
-        results->at(team*teamCount*2 + seed*2) = qm::getStrFromQm(n, qm::calcSparseQm(n, tbMatches[team*teamCount + seed]), posNames, negNames);
-        results->at(team*teamCount*2 + seed*2+1) = qm::getStrFromQm(n, qm::calcSparseQm(n, ntbMatches[team*teamCount + seed]), posNames, negNames);
+        results->at(team*teamCount*2 + seed*2) = qm::getStrFromQm(n, tbMatches[team*teamCount + seed], posNames, negNames);
+        results->at(team*teamCount*2 + seed*2+1) = qm::getStrFromQm(n, ntbMatches[team*teamCount + seed], posNames, negNames);
     }
 }
 
@@ -259,7 +259,10 @@ int main(int argc, char *argv[]) {
                "\t-bm <teamCount> <matchCount>\tWill remove the need for a file and instead generate a random season with <teamCount> teams and <matchCount> matches remaining.");
         return 0;
     }
-    for (int i = 1; i < argc-1; i++) {
+    for (int i = 1; i < argc; i++) {
+        if (i >= argc - 1 && benchmarkTC == 0) {
+            break;
+        }
         if (strcmp(argv[i], "--cuda") == 0) {
             CUDA = true;
         } else if (strcmp(argv[i], "--foldy") == 0) {
@@ -509,6 +512,9 @@ int main(int argc, char *argv[]) {
         if (teamCount*teamCount%threads != 0) {
             inc += 1;
         }
+
+        // qmResults.at(0) = qm::getStrFromQm(unplayedCount[0], ntbseasons[0], posNames, negNames);
+
         for (int i = 0; i < threads; i++) {
             threadsVec.emplace_back(processQmResults, inc, i, tbseasons, ntbseasons, &qmResults,teamCount, unplayedCount[0], posNames, negNames);
         }
@@ -517,20 +523,22 @@ int main(int argc, char *argv[]) {
             threadsVec.at(i).join();
         }
 
-        // for (int team = 0; team < teamCount; team++) {
-        //     std::cout << teams[team] << ":" << std::endl;
-        //     for (int seed = 0; seed < teamCount; seed ++) {
-        //         const std::string& tbString = qmResults[team*teamCount*2 + seed*2];
-        //         if (!tbString.empty()) {
-        //             std::cout << "\tSeed " << seed+1 << "(tb): " << tbString << std::endl;
-        //         }
-        //         const std::string& ntbString = qmResults[team*teamCount*2 + seed*2+1];
-        //         if (!ntbString.empty()) {
-        //             std::cout << "\tSeed " << seed+1 << ": " << ntbString << std::endl;
-        //         }
-        //     }
-        //     std::cout << std::endl;
-        // }
+        if (benchmarkTC == 0) {
+            for (int team = 0; team < teamCount; team++) {
+                std::cout << teams[team] << ":" << std::endl;
+                for (int seed = 0; seed < teamCount; seed ++) {
+                    const std::string& tbString = qmResults[team*teamCount*2 + seed*2];
+                    if (!tbString.empty()) {
+                        std::cout << "\tSeed " << seed+1 << "(tb): " << tbString << std::endl;
+                    }
+                    const std::string& ntbString = qmResults[team*teamCount*2 + seed*2+1];
+                    if (!ntbString.empty()) {
+                        std::cout << "\tSeed " << seed+1 << ": " << ntbString << std::endl;
+                    }
+                }
+                std::cout << std::endl;
+            }
+        }
     }
 
     auto processedData = std::chrono::high_resolution_clock::now();
