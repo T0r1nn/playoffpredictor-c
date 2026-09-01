@@ -163,7 +163,7 @@ static auto convert_back(uint128 prime, int n, long long arr[]) {
     long long ones = 0;
     long long zeros = 0;
     for (int k = 0; k < n; k++) {
-        int check = static_cast<int>((prime >> (n * 2 - 2 - k * 2)) & 0b11);
+        uint128 check = (prime >> ((n-k-1)*2)) & 0b11;
         if (check == 1) {
             ones += static_cast<uint128>(1) << (n-k-1);
         }
@@ -177,21 +177,16 @@ static auto convert_back(uint128 prime, int n, long long arr[]) {
 
 namespace qm {
     std::vector<long long> calcSparseQm(int n, const std::vector<long long>& terms) {
-        static uint128 onesMask = 0;
-        for (int i = 0; i < n; i++) {
-            onesMask <<= 2;
-            onesMask += 1;
-        }
-
         HashSet S;
         HashSet S2;
         HashSet primes;
+
         S.reserve(terms.size());
         primes.reserve(terms.size());
         for (long long term : terms) {
             S.insert(convert(term, n));
         }
-        for (int w = 0; w < n; w++) {
+        for (int w = 0; w < n+1; w++) {
             std::vector<uint128> news;
             news.reserve(S.contents.size());
             for (auto impl : S.contents) {
@@ -238,7 +233,7 @@ namespace qm {
             std::swap(S.mask, S2.mask);
             std::swap(S.n, S2.n);
 
-            if (S.contents.size() == 0) {
+            if (S.contents.empty()) {
                 break;
             }
         }
@@ -253,7 +248,6 @@ namespace qm {
         sets.assign(primes.contents.size(), HashSet());
         for (auto term : terms) {
             auto nt = convert(term, n);
-            //
             for (int i = 0; i < primes.contents.size(); i++) {
                 bool works = true;
                 auto prime = primes.contents.at(i);
@@ -362,7 +356,6 @@ namespace qm {
             duplicityMap[pTerm.nodeType] = 0;
             duplicityMap[nTerm.nodeType] = 0;
         }
-        //
         for (int i = 0; i < qm.size(); i+=2) {
             std::vector<Node> andTerms = std::vector<Node>();
             for (int k = 0; k < n; k++) {
@@ -470,6 +463,14 @@ namespace qm {
     }
 
     std::string getStrFromQm(int n, std::vector<long long> qm, std::vector<std::string> posNames, std::vector<std::string> negNames) {
-        return treeToStr(distribute(createTree(n, std::move(qm), std::move(posNames), std::move(negNames))));
+        if (qm.size() == 2 && qm[1] == (1ll << n) - 1) {
+            return "Always";
+        }
+
+        std::string result = treeToStr(distribute(createTree(n, std::move(qm), std::move(posNames), std::move(negNames))));
+        if (!result.empty()) {
+            result = "\n\t\t"+result;
+        }
+        return result;
     }
 }

@@ -319,8 +319,9 @@ int main(int argc, char *argv[]) {
 
         int totalMatches = teamCount * (teamCount - 1) / 2;
         for (int i = 0; i < teamCount; i+=1) {
-            teams.push_back(std::format("Team {}", i));
+            teams[i] = std::format("Team {}", i);
         }
+
         unplayedCount[0] = benchmarkUM;
         season[0] = 0;
         unplayed[0] = 0;
@@ -330,7 +331,7 @@ int main(int argc, char *argv[]) {
             loop[i] = i;
         }
         for (int i = 0; i < totalMatches - benchmarkUM; i++) {
-            if (i%5 == 0 && i != 0) {
+            if (i%(teamCount/2) == 0 && i != 0) {
                 int temp = loop[teamCount-1];
                 for (int j = teamCount-1; j >= 2; j--) {
                     loop[j] = loop[j-1];
@@ -338,7 +339,7 @@ int main(int argc, char *argv[]) {
                 loop[1] = temp;
             }
 
-            int result = rng(gen);
+            long long result = rng(gen);
             int t1Ind = i%(teamCount/2);
             int t2Ind = teamCount - i%(teamCount/2) - 1;
 
@@ -350,7 +351,7 @@ int main(int argc, char *argv[]) {
             season[0] |= result << shift;
         }
         for (int i = totalMatches - benchmarkUM; i < totalMatches; i++) {
-            if (i%5 == 0 && i != 0) {
+            if (i%(teamCount/2) == 0 && i != 0) {
                 int temp = loop[teamCount-1];
                 for (int j = teamCount-1; j >= 2; j--) {
                     loop[j] = loop[j-1];
@@ -358,7 +359,6 @@ int main(int argc, char *argv[]) {
                 loop[1] = temp;
             }
 
-            int result = rng(gen);
             int t1Ind = i%(teamCount/2);
             int t2Ind = teamCount - i%(teamCount/2) - 1;
 
@@ -367,7 +367,7 @@ int main(int argc, char *argv[]) {
 
             int shift = b + shifts[a];
 
-            unplayed[0] |= result << shift;
+            unplayed[0] |= 1ll << shift;
         }
     }
     auto readFile = std::chrono::high_resolution_clock::now();
@@ -473,7 +473,7 @@ int main(int argc, char *argv[]) {
             }
             b -= 1;
             a = x - shifts[b];
-            if (a <= b) {
+            while (a <= b) {
                 b -= 1;
                 a = x-shifts[b];
             }
@@ -517,21 +517,22 @@ int main(int argc, char *argv[]) {
             threadsVec.at(i).join();
         }
 
-        for (int team = 0; team < teamCount; team++) {
-            std::cout << teams[team] << ":" << std::endl;
-            for (int seed = 0; seed < teamCount; seed ++) {
-                const std::string& tbString = qmResults[team*teamCount*2 + seed*2];
-                if (!tbString.empty()) {
-                    std::cout << "\tSeed " << seed+1 << "(tb): " << tbString << std::endl;
-                }
-                const std::string& ntbString = qmResults[team*teamCount*2 + seed*2+1];
-                if (!ntbString.empty()) {
-                    std::cout << "\tSeed " << seed+1 << ": " << ntbString << std::endl;
-                }
-            }
-            std::cout << std::endl;
-        }
+        // for (int team = 0; team < teamCount; team++) {
+        //     std::cout << teams[team] << ":" << std::endl;
+        //     for (int seed = 0; seed < teamCount; seed ++) {
+        //         const std::string& tbString = qmResults[team*teamCount*2 + seed*2];
+        //         if (!tbString.empty()) {
+        //             std::cout << "\tSeed " << seed+1 << "(tb): " << tbString << std::endl;
+        //         }
+        //         const std::string& ntbString = qmResults[team*teamCount*2 + seed*2+1];
+        //         if (!ntbString.empty()) {
+        //             std::cout << "\tSeed " << seed+1 << ": " << ntbString << std::endl;
+        //         }
+        //     }
+        //     std::cout << std::endl;
+        // }
     }
+
     auto processedData = std::chrono::high_resolution_clock::now();
 
     auto totalTime = msDiff(processedData, start);
@@ -542,6 +543,5 @@ int main(int argc, char *argv[]) {
     auto threadTime = msDiff(ranThreads, threadSetup);
     auto processTime = msDiff(processedData, ranThreads);
     std::printf("Total time: %f\n\tArguments: %f\n\tFile: %f\n\tSetup Data: %f\n\tSetup Threads: %f\n\tThreads: %f\n\tProcessing Data: %f\n", totalTime, argTime, fileTime, setupTime, threadSetupTime, threadTime, processTime);
-
     return 0;
 }
