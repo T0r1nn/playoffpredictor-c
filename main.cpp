@@ -190,7 +190,7 @@ static void calculateRangeStats(long long increment, int pos, long long season, 
     }
 }
 
-static void calculateRangeQm(const long long increment, const int pos, const long long season, const long long unplayed, const int teamCount, const int unplayedCount, const long long *t1Masks, const long long *t2Masks, const int *shifts, std::vector<std::vector<long long>> *tbmatches, std::vector<std::vector<long long>> *ntbmatches) {
+static void calculateRangeQm(const long long increment, const int pos, const long long season, const long long unplayed, const int teamCount, const int unplayedCount, const long long *t1Masks, const long long *t2Masks, const int *shifts, std::vector<std::vector<std::bitset<256>>> *tbmatches, std::vector<std::vector<std::bitset<256>>> *ntbmatches) {
     std::vector<int> order(teamCount);
     std::vector<int> highSeed(teamCount);
     std::vector<int> lowSeed(teamCount);
@@ -206,19 +206,20 @@ static void calculateRangeQm(const long long increment, const int pos, const lon
 
         for (int i = 0; i < teamCount; i ++) {
             int team = order[i];
-            for (int seed = 0; seed < teamCount; seed ++) {
-                if (highSeed[team] <= seed && lowSeed[team] >= seed && highSeed[team] != lowSeed[team]) {
-                    tbmatches[0].at(pos * teamCount*teamCount + team*teamCount + seed).push_back(u);
-                }
-                if (highSeed[team] == seed && highSeed[team] == lowSeed[team]) {
-                    ntbmatches[0].at(pos * teamCount*teamCount + team*teamCount + seed).push_back(u);
+            if (highSeed[team] == lowSeed[team]) {
+                const uint64_t idx = qm::toTernary(u, unplayedCount);
+                ntbmatches[0][team*teamCount + highSeed[team]][idx/243][idx%243] = true;
+            }else {
+                for (int seed = highSeed[team]; seed <= lowSeed[team]; seed ++) {
+                    const uint64_t idx = qm::toTernary(u, unplayedCount);
+                    tbmatches[0][team*teamCount + seed][idx/243][idx%243] = true;
                 }
             }
         }
     }
 }
 
-static void processQmResults(int increment, int pos, const std::vector<long long> *tbMatches, const std::vector<long long> *ntbMatches, std::vector<std::string> *results, int teamCount, int n, const std::vector<std::string>& posNames, const std::vector<std::string>& negNames) {
+static void processQmResults(int increment, int pos, const std::vector<std::vector<std::bitset<256>>>& tbMatches, const std::vector<std::vector<std::bitset<256>>> &ntbMatches, std::vector<std::string> *results, int teamCount, int n, const std::vector<std::string>& posNames, const std::vector<std::string>& negNames) {
     int start = pos*increment;
     int end = std::min((pos+1)*increment, teamCount*teamCount);
     if (start >= teamCount*teamCount) {
@@ -386,14 +387,21 @@ int main(int argc, char *argv[]) {
 
     int *istats;
     long double *fstats;
-    std::vector<std::vector<long long>> tbmatches = std::vector<std::vector<long long>>();
-    std::vector<std::vector<long long>> ntbmatches = std::vector<std::vector<long long>>();
+    auto tbmatches = std::vector<std::vector<std::bitset<256>>>();
+    auto ntbmatches = std::vector<std::vector<std::bitset<256>>>();
     if (!QM) {
         istats = static_cast<int *>(malloc(threads * teamCount * sizeof(int) * 2));
         fstats = static_cast<long double *>(malloc(threads * teamCount * sizeof(long double) * 2));
     } else {
-        tbmatches.assign(teamCount*teamCount*threads, std::vector<long long>());
-        ntbmatches.assign(teamCount*teamCount*threads, std::vector<long long>());
+        uint64_t blockCount = unplayedCount[0] > 5 ? qm::pow3(unplayedCount[0] - 5) : 1;
+        for (int i = 0; i < teamCount * teamCount; i++) {
+            tbmatches.emplace_back();
+            ntbmatches.emplace_back();
+            for (int j = 0; j < blockCount; j++) {
+                tbmatches.at(i).emplace_back(0);
+                ntbmatches.at(i).emplace_back(0);
+            }
+        }
     }
 
     auto setupData = std::chrono::high_resolution_clock::now();
@@ -484,44 +492,27 @@ int main(int argc, char *argv[]) {
             negNames.at(i) = (std::format("{} beats {}", teams[a], teams[b]));
         }
 
-        auto *tbseasons = new std::vector<long long>[teamCount * teamCount];
-        auto *ntbseasons = new std::vector<long long>[teamCount * teamCount];
-
         auto qmResults = std::vector<std::string>();
         for (int i = 0; i < teamCount; i++) {
             for (int j = 0; j < teamCount; j++) {
                 qmResults.emplace_back();
                 qmResults.emplace_back();
-                tbseasons[i * teamCount + j] = std::vector<long long>();
-                ntbseasons[i * teamCount + j] = std::vector<long long>();
             }
         }
 
-        for (int team = 0; team < teamCount; team++) {
-            for (int seed = 0; seed < teamCount; seed ++) {
-                for (int t = 0; t < threads; t ++) {
-                    std::vector<long long> tbVecToAdd= tbmatches[t*teamCount*teamCount + team*teamCount + seed];
-                    tbseasons[team*teamCount + seed].insert(tbseasons[team*teamCount + seed].end(), tbVecToAdd.begin(), tbVecToAdd.end());
-                    std::vector<long long> ntbVecToAdd= ntbmatches[t*teamCount*teamCount + team*teamCount + seed];
-                    ntbseasons[team*teamCount + seed].insert(ntbseasons[team*teamCount + seed].end(), ntbVecToAdd.begin(), ntbVecToAdd.end());
-                }
-            }
-        }
         threadsVec.clear();
         int inc = teamCount*teamCount/threads;
         if (teamCount*teamCount%threads != 0) {
             inc += 1;
         }
 
-        qmResults.at(0) = qm::getStrFromQm(unplayedCount[0], ntbseasons[0], posNames, negNames);
+        for (int i = 0; i < threads; i++) {
+            threadsVec.emplace_back(processQmResults, inc, i, tbmatches, ntbmatches, &qmResults,teamCount, unplayedCount[0], posNames, negNames);
+        }
 
-        // for (int i = 0; i < threads; i++) {
-        //     threadsVec.emplace_back(processQmResults, inc, i, tbseasons, ntbseasons, &qmResults,teamCount, unplayedCount[0], posNames, negNames);
-        // }
-        //
-        // for (int i = 0; i < threads; i++) {
-        //     threadsVec.at(i).join();
-        // }
+        for (int i = 0; i < threads; i++) {
+            threadsVec.at(i).join();
+        }
 
         if (benchmarkTC == 0) {
             for (int team = 0; team < teamCount; team++) {
