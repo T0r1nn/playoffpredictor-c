@@ -15,7 +15,7 @@
 #endif
 
 namespace  qm {
-    std::string getStrFromQm(int n, std::vector<std::bitset<256>> terms, std::vector<std::string> posNames, std::vector<std::string> negNames);
+    std::string getStrFromQm(int n, std::vector<std::bitset<256>> *terms, std::vector<std::string> posNames, std::vector<std::string> negNames);
     uint64_t toTernary(uint64_t term, int n);
     inline uint64_t pow3(int e);
     struct HashSet;

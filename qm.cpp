@@ -299,7 +299,7 @@ namespace qm {
         std::bitset<256>("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000111111111111111111111111111111111111111111111111111111111111111111111111111111111")
     };
 
-    HashSet calcDenseQm(int n, std::vector<std::bitset<256>> S) {
+    HashSet calcDenseQm(int n, std::vector<std::bitset<256>> *S) {
         const int nh = n-5;
 
         const uint64_t block_size = nh > 0 ? pow3(nh) : 1;
@@ -314,13 +314,14 @@ namespace qm {
                         const size_t id_s = b+c;
                         const size_t id_t = id_s + shift;
                         const size_t id_u = id_t + shift;
-                        S[id_u] |= S[id_s] & S[id_u];
+                        S->at(id_u) |= S->at(id_s) & S->at(id_u);
                     }
                 }
             }
         }
         {
-            for (auto &Sa : S) {
+            for (auto & i : *S) {
+                auto Sa = i;
                 std::bitset<256> s, t;
 
                 s = Sa & masks[0];
@@ -345,20 +346,22 @@ namespace qm {
 
                 std::bitset<256> u;
 
-                u = ((Sa >> 2) & masks[0]);
+                u = (Sa >> 2) & masks[0];
                 Sa &= ~(u | (u << 1));
 
-                u = ((Sa >> 6) & masks[1]);
+                u = (Sa >> 6) & masks[1];
                 Sa &= ~(u | (u << 3));
 
-                u = ((Sa >> 18) & masks[2]);
+                u = (Sa >> 18) & masks[2];
                 Sa &= ~(u | (u << 9));
 
-                u = ((Sa >> 54) & masks[3]);
+                u = (Sa >> 54) & masks[3];
                 Sa &= ~(u | (u << 27));
 
-                u = ((Sa >> 162) & masks[4]);
+                u = (Sa >> 162) & masks[4];
                 Sa &= ~(u | (u << 81));
+
+                i = Sa;
             }
         }
         {
@@ -366,14 +369,14 @@ namespace qm {
             for (int i = 1; i <= nh; i++) {
                 size_t shift = step;
                 step *= 3;
-                for (size_t b = 0; b < block_size; b+=step) {
-                    for (size_t c = 0; c < shift; c++) {
+                for (size_t b = 0; b < block_size; b+=step) {//block_size/3^i
+                    for (size_t c = 0; c < shift; c++) {//3^(i-1)
                         const size_t id_s = b+c;
                         const size_t id_t = id_s + shift;
                         const size_t id_u = id_t + shift;
-                        const auto tmp = ~S[id_u];
-                        S[id_s] &= tmp;
-                        S[id_t] &= tmp;
+                        const auto tmp = ~S->at(id_u);
+                        S->at(id_s) &= tmp;
+                        S->at(id_t) &= tmp;
                     }
                 }
             }
@@ -381,10 +384,7 @@ namespace qm {
 
         HashSet primes;
         for (uint64_t term = 0; term < block_size * 243; term ++) {
-            if (S[term/243] == 0) {
-                term += 243;
-            }
-            if (S[term/243][term%243]) {
+            if (S->at(term/243)[term%243]) {
                 uint128 prime = 0;
                 uint64_t t2 = term;
                 for (int i = 0; i < n; i++) {
@@ -515,8 +515,8 @@ namespace qm {
         return tree;
     }
 
-    std::string getStrFromQm(int n, std::vector<std::bitset<256>> terms, std::vector<std::string> posNames, std::vector<std::string> negNames) {
-        auto simplified = skipPhase2(n, calcDenseQm(n, std::move(terms)));
+    std::string getStrFromQm(int n, std::vector<std::bitset<256>> *terms, std::vector<std::string> posNames, std::vector<std::string> negNames) {
+        auto simplified = skipPhase2(n, calcDenseQm(n, terms));
 
         if (simplified.size() == 2 && simplified[1] == (1ll << n) - 1) {
             return "Always";

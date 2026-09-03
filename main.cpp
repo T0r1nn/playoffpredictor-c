@@ -219,7 +219,7 @@ static void calculateRangeQm(const long long increment, const int pos, const lon
     }
 }
 
-static void processQmResults(int increment, int pos, const std::vector<std::vector<std::bitset<256>>>& tbMatches, const std::vector<std::vector<std::bitset<256>>> &ntbMatches, std::vector<std::string> *results, int teamCount, int n, const std::vector<std::string>& posNames, const std::vector<std::string>& negNames) {
+static void processQmResults(int increment, int pos, std::vector<std::vector<std::bitset<256>>> *tbMatches, std::vector<std::vector<std::bitset<256>>> *ntbMatches, std::vector<std::string> *results, int teamCount, int n, const std::vector<std::string>& posNames, const std::vector<std::string>& negNames) {
     int start = pos*increment;
     int end = std::min((pos+1)*increment, teamCount*teamCount);
     if (start >= teamCount*teamCount) {
@@ -228,8 +228,8 @@ static void processQmResults(int increment, int pos, const std::vector<std::vect
     for (int item = start; item < end; item++) {
         int seed = item%teamCount;
         int team = (item - seed)/teamCount;
-        results->at(team*teamCount*2 + seed*2) = qm::getStrFromQm(n, tbMatches[team*teamCount + seed], posNames, negNames);
-        results->at(team*teamCount*2 + seed*2+1) = qm::getStrFromQm(n, ntbMatches[team*teamCount + seed], posNames, negNames);
+        results->at(team*teamCount*2 + seed*2) = qm::getStrFromQm(n, &tbMatches->at(team*teamCount + seed), posNames, negNames);
+        results->at(team*teamCount*2 + seed*2+1) = qm::getStrFromQm(n, &ntbMatches->at(team*teamCount + seed), posNames, negNames);
     }
 }
 
@@ -389,18 +389,17 @@ int main(int argc, char *argv[]) {
     long double *fstats;
     auto tbmatches = std::vector<std::vector<std::bitset<256>>>();
     auto ntbmatches = std::vector<std::vector<std::bitset<256>>>();
+    auto tc2 = teamCount * teamCount;
     if (!QM) {
         istats = static_cast<int *>(malloc(threads * teamCount * sizeof(int) * 2));
         fstats = static_cast<long double *>(malloc(threads * teamCount * sizeof(long double) * 2));
     } else {
         uint64_t blockCount = unplayedCount[0] > 5 ? qm::pow3(unplayedCount[0] - 5) : 1;
+        tbmatches.resize(tc2);
+        ntbmatches.resize(tc2);
         for (int i = 0; i < teamCount * teamCount; i++) {
-            tbmatches.emplace_back();
-            ntbmatches.emplace_back();
-            for (int j = 0; j < blockCount; j++) {
-                tbmatches.at(i).emplace_back(0);
-                ntbmatches.at(i).emplace_back(0);
-            }
+            tbmatches.at(i).resize(blockCount);
+            ntbmatches.at(i).resize(blockCount);
         }
     }
 
@@ -507,7 +506,7 @@ int main(int argc, char *argv[]) {
         }
 
         for (int i = 0; i < threads; i++) {
-            threadsVec.emplace_back(processQmResults, inc, i, tbmatches, ntbmatches, &qmResults,teamCount, unplayedCount[0], posNames, negNames);
+            threadsVec.emplace_back(processQmResults, inc, i, &tbmatches, &ntbmatches, &qmResults,teamCount, unplayedCount[0], posNames, negNames);
         }
 
         for (int i = 0; i < threads; i++) {
