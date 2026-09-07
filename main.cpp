@@ -191,8 +191,97 @@ public:
 
     virtual void displayData() = 0;
 
-    std::thread spawnDataThread(int pos, int threadCount, unsigned long long total) {
+    virtual std::thread spawnDataThread(int pos, int threadCount, unsigned long long total) {
         return std::thread(&seasonProcessor::processData, this, pos, threadCount, total);
+    }
+};
+
+class foldyProcessor : public seasonProcessor {
+public:
+    seasonData sdata;
+    std::vector<std::string> foldyRows;
+    std::vector<std::string> zeroNames;
+    std::vector<std::string> oneNames;
+    std::string headerRow;
+
+    void setupData(int threadCount, seasonData data) override {
+        foldyRows.resize(1ULL << data.unplayedCount, "");
+        zeroNames.resize(data.unplayedCount, "");
+        oneNames.resize(data.unplayedCount, "");
+        sdata = data;
+
+        for (int i = 0; i < sdata.unplayedCount; i++) {
+            unsigned long long matchMask = 0;
+            unsigned long long y = sdata.unplayed;
+            for (int j = 0; j < i+1; j++) {
+                unsigned long long z = y & y-1LL;
+                matchMask = y-z;
+                y = z;
+            }
+            int x = 0;
+            unsigned long long m = matchMask;
+            while (m > 1) {
+                x += 1;
+                m = m >> 1;
+            }
+            int a = 0;
+            int b = 0;
+            while (b < sdata.teamCount && sdata.shifts[b] < x) {
+                b += 1;
+            }
+            b -= 1;
+            a = x - sdata.shifts[b];
+            while (a <= b) {
+                b -= 1;
+                a = x-sdata.shifts[b];
+            }
+            oneNames[i] = sdata.teamNames[b];
+            zeroNames[i] = sdata.teamNames[a];
+
+            headerRow += oneNames[i] + " vs " + zeroNames[i] + ",";
+        }
+
+        for (int i = 0; i < sdata.teamCount; i++) {
+            headerRow += std::format("Team {}, Best Seed, Worst Seed", i) + (i + 1 < sdata.teamCount ? "," : "");
+        }
+    }
+
+    void processSeason(const std::vector<int> &order, const std::vector<int> &highSeed, const std::vector<int> &lowSeed, unsigned long long season, long long u, int threadPos) override {
+        /*
+         * Steps:
+         * 1. Get match results, print winning team shortcodes.
+         * 2. Print order, highest possible seed, and lowest possible seed
+         * 3. String is stored in foldyRows[u]
+         */
+        std::string row;
+        for (int i = 0; i < sdata.unplayedCount; i++) {
+            if (((u >> i) & 1) == 1) {
+                row += oneNames[i] + ",";
+            } else {
+                row += zeroNames[i] + ",";
+            }
+        }
+        for (int i = 0; i < order.size(); i++){
+            const int team = order[i];
+            row += sdata.teamNames[team] + ",";
+            row += std::to_string(highSeed[team]) + ",";
+            row += std::to_string(lowSeed[team]) + (i + 1 < order.size() ? "," : "");
+        }
+
+        foldyRows[u] = row;
+    };
+
+    void processData(int pos, int threadCount, unsigned long long total) override{}
+
+    void displayData() override {
+        std::ofstream csv("foldy.csv");
+        csv.write(headerRow.c_str(), headerRow.size());
+        csv.write("\n",1);
+        for (const auto& row : foldyRows) {
+            csv.write(row.c_str(), row.size());
+            csv.write("\n",1);
+        }
+        csv.close();
     }
 };
 
@@ -483,7 +572,7 @@ int main(int argc, char *argv[]) {
 
         int totalMatches = teamCount * (teamCount - 1) / 2;
         for (int i = 0; i < teamCount; i+=1) {
-            teams[i] = std::format("Team {}", i);
+            teams[i] = std::format("T{}", i);
         }
 
         unplayedCount[0] = benchmarkUM;
@@ -549,13 +638,14 @@ int main(int argc, char *argv[]) {
     threadsVec.reserve(threads);
 
     seasonProcessor* proc;
-    if (!QM) {
-        proc = new statsProcessor();
-        proc->setupData(threads, data);
-    } else {
+    if (QM) {
         proc = new qmProcessor();
-        proc->setupData(threads, data);
+    } else if (FOLDY){
+        proc = new foldyProcessor();
+    } else {
+        proc = new statsProcessor();
     }
+    proc->setupData(threads, data);
 
     auto setupData = std::chrono::high_resolution_clock::now();
 
@@ -606,9 +696,8 @@ int main(int argc, char *argv[]) {
 
 //Still to do:
 /*
- * Foldy Sheet generation
  * CUDA mode
- * Small-scope QM(for specifc seed ranges)
+ * Small-scope QM(for specific seed ranges)
  * Performance testing vs compressed unplayed
  * Granular performance testing
  * Any way to reduce QM RAM usage
