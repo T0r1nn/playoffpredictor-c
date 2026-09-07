@@ -7,4 +7,8 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=address")
 
 add_executable(playoffpredictor main.cpp
         qm.cpp
-        qm.h)
+        qm.h
+        ts.cpp
+        ts.h
+        cs.cpp
+        cs.h)
