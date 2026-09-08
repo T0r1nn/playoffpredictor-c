@@ -93,8 +93,8 @@ namespace ts {
 
     void foldyProcessor::setupData(int threadCount, seasonData data) {
         foldyRows.resize(1ULL << data.unplayedCount, "");
-        zeroNames.resize(data.unplayedCount, "");
-        oneNames.resize(data.unplayedCount, "");
+        zeroNames.reserve(data.unplayedCount);
+        oneNames.reserve(data.unplayedCount);
         sdata = data;
 
         for (int i = 0; i < sdata.unplayedCount; i++) {
@@ -122,8 +122,8 @@ namespace ts {
                 b -= 1;
                 a = x-sdata.shifts[b];
             }
-            oneNames[i] = sdata.teamNames[b];
-            zeroNames[i] = sdata.teamNames[a];
+            oneNames.push_back(sdata.teamNames[b]);
+            zeroNames.push_back(sdata.teamNames[a]);
 
             headerRow += oneNames[i] + " vs " + zeroNames[i] + ",";
         }
@@ -242,12 +242,12 @@ namespace ts {
         sdata = data;
         int tc2 = sdata.teamCount * sdata.teamCount;
         uint64_t blockCount = sdata.unplayedCount > 5 ? qm::pow3(sdata.unplayedCount - 5) : 1;
-        tbMatches.resize(tc2);
-        ntbMatches.resize(tc2);
+        tbMatches.reserve(tc2);
+        ntbMatches.reserve(tc2);
         results.resize(2*tc2);
         for (int i = 0; i < sdata.teamCount * sdata.teamCount; i++) {
-            tbMatches.at(i).resize(blockCount);
-            ntbMatches.at(i).resize(blockCount);
+            tbMatches.emplace_back(blockCount);
+            ntbMatches.emplace_back(blockCount);
         }
 
         for (int i = 0; i < sdata.unplayedCount; i++) {

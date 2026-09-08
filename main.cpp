@@ -11,26 +11,8 @@
 
 #include "ts.h"
 
-static int getTeamCount(const char* filename) {
-    std::ifstream csv(filename);
-
-    std::string line;
-
-    std::getline(csv, line);
-    int teamCount = 0;
-    for (int i = 0; i < line.length(); i++) {
-        if (line[i] == ',') {
-            teamCount += 1;
-        }
-    }
-
-    csv.close();
-
-    return teamCount;
-}
-
-static void readCSV(const char* filename, std::vector<std::string> *teams, long long *season, long long *unplayed, int *unplayedCount) {
-    unplayedCount[0] = 0;
+static std::vector<std::vector<std::string>> readCSV(const char* filename) {
+    std::vector<std::vector<std::string>> output;
     std::ifstream csv(filename);
 
     if (!csv.is_open()) {
@@ -38,59 +20,73 @@ static void readCSV(const char* filename, std::vector<std::string> *teams, long 
     }
 
     std::string line;
-
-    std::getline(csv, line);
-
-    int ind = -1;
-    std::string team;
-    for (int i = 0; i < line.length(); i++) {
-        if (line[i] == ',' || line[i] == '\n') {
-            if (ind != -1) {
-                teams->at(ind) = team;
+    int lineNo = 0;
+    while (std::getline(csv, line)) {
+        output.emplace_back();
+        std::string item;
+        for (const char chr : line) {
+            if (chr == ',') {
+                output[lineNo].push_back(item);
+                item = "";
+            }else {
+                item += chr;
             }
-            team = "";
-            ind += 1;
-        } else {
-            team += line[i];
+        }
+        output[lineNo].push_back(item);
+        lineNo += 1;
+    }
+
+    return output;
+}
+
+static ts::seasonData getSeasonData(const std::vector<std::vector<std::string>> &csv) {
+    int teamCount = (csv.size() & INT_MAX) - 1;
+    int unplayedCount = 0;
+    unsigned long long unplayed = 0;
+    unsigned long long season = 0;
+    std::vector<std::string> teamNames;
+    teamNames.reserve(teamCount);
+
+    for (int i = 1; i < csv[0].size(); i++) {
+        teamNames.push_back(csv[0][i]);
+    }
+
+    int ind = 0;
+    for (int i = 1; i < csv.size(); i++) {
+        for (int j = i + 1; j < csv[i].size(); j++) {
+            std::string result = csv[i][j];
+            if (result.empty()) {
+                unplayedCount ++;
+                unplayed |= 1ULL << ind;
+            } else if (result == "1") {
+                season |= 1ULL << ind;
+            }
+            ind ++;
         }
     }
-    teams->at(ind) = team;
-
-    season[0] = 0;
-    unplayed[0] = 0;
     ind = 0;
 
-    int row = 0;
-    while (std::getline(csv, line)) {
-        int commaCount = 0;
-        for (int i = 0; i < line.length(); i++) {
-            char chr = line[i];
-            if (chr == ',' && commaCount <= row+1) {
-                commaCount += 1;
-            } else if (commaCount > row+1) {
-                if (chr == '0') {
-                    i += 1;
-                    ind += 1;
-                } else if (chr == '1') {
-                    i += 1;
-                    season[0] += (1LL << ind);
-                    ind += 1;
-                } else {
-                    unplayed[0] += (1LL << ind);
-                    unplayedCount[0] += 1;
-                    ind += 1;
-                }
-            }
-        }
-        if (line[line.length()-1] == ',') {
-            unplayed[0] += (1LL << ind);
-            unplayedCount[0] += 1;
-            ind += 1;
-        }
-        row += 1;
+    return ts::seasonData{.teamCount = teamCount, .unplayedCount = unplayedCount, .season = season, .unplayed = unplayed, .teamNames = teamNames};
+}
+
+static void getPrecalcMasks(ts::seasonData *data) {
+    data->shifts = static_cast<int *>(malloc(data->teamCount * sizeof(int)));
+    data->t1Masks = static_cast<long long *>(malloc(data->teamCount * sizeof(long long)));
+    data->t2Masks = static_cast<long long *>(malloc(data->teamCount * sizeof(long long)));
+    int ind = 0;
+    for (int i = 0; i < data->teamCount; i++) {
+        data->t1Masks[i] = 0LL;
+        data->t2Masks[i] = 0LL;
+        data->shifts[i] = static_cast<int>(-0.5 * i * i + (data->teamCount - 1.5) * i - 1);
     }
 
-    csv.close();
+    for (int i = 0; i < data->teamCount; i++) {
+        for (int j = i+1; j < data->teamCount; j++) {
+            data->t2Masks[i] += 1LL << ind;
+            data->t1Masks[j] += 1LL << ind;
+            ind += 1;
+        }
+    }
 }
 
 static double msDiff(std::chrono::time_point<std::chrono::high_resolution_clock> a, std::chrono::time_point<std::chrono::high_resolution_clock> b) {
@@ -145,29 +141,8 @@ int main(int argc, char *argv[]) {
         }
     }
     auto processedArgs = std::chrono::high_resolution_clock::now();
-    const int teamCount = benchmarkTC == 0 ? getTeamCount(filename) : benchmarkTC;
-    std::vector<std::string> teams(teamCount);
-    auto *season = static_cast<long long *>(malloc(sizeof(long long)));
-    auto *unplayed = static_cast<long long *>(malloc(sizeof(long long)));
-    int *unplayedCount = static_cast<int *>(malloc(sizeof(int)));
+    ts::seasonData data{.teamCount = 0, .unplayedCount = 0, .season = 0, .unplayed = 0, .t1Masks = {}, .t2Masks = {}, .shifts = {}};
 
-    int *shifts = static_cast<int *>(malloc(teamCount * sizeof(int)));
-    auto *t1Masks = static_cast<long long *>(malloc(teamCount * sizeof(long long)));
-    auto *t2Masks = static_cast<long long *>(malloc(teamCount * sizeof(long long)));
-    int ind = 0;
-    for (int i = 0; i < teamCount; i++) {
-        t1Masks[i] = 0LL;
-        t2Masks[i] = 0LL;
-        shifts[i] = static_cast<int>(-0.5 * i * i + (teamCount - 1.5) * i - 1);
-    }
-
-    for (int i = 0; i < teamCount; i++) {
-        for (int j = i+1; j < teamCount; j++) {
-            t2Masks[i] += 1LL << ind;
-            t1Masks[j] += 1LL << ind;
-            ind += 1;
-        }
-    }
 
     std::size_t seed;
     if (std::random_device device; device.entropy() != 0) {
@@ -178,69 +153,74 @@ int main(int argc, char *argv[]) {
     std::mt19937 gen(seed);
 
     if (benchmarkTC == 0) {
-        readCSV(filename, &teams, season, unplayed, unplayedCount);
+        std::vector<std::vector<std::string>> csv = readCSV(filename);
+        data = getSeasonData(csv);
+        getPrecalcMasks(&data);
     } else {
         std::uniform_int_distribution rng(0, 1);
 
-        int totalMatches = teamCount * (teamCount - 1) / 2;
-        for (int i = 0; i < teamCount; i+=1) {
-            teams[i] = std::format("T{}", i);
+        data.teamCount = benchmarkTC;
+
+        int totalMatches = data.teamCount * (data.teamCount - 1) / 2;
+        for (int i = 0; i < data.teamCount; i+=1) {
+            data.teamNames.push_back(std::format("T{}", i));
         }
 
-        unplayedCount[0] = benchmarkUM;
-        season[0] = 0;
-        unplayed[0] = 0;
+        data.unplayedCount = benchmarkUM;
+        data.season = 0;
+        data.unplayed = 0;
+
+        getPrecalcMasks(&data);
+
         std::vector<int> loop;
-        loop.assign(teams.size(), 0);
-        for (int i = 0; i < teamCount; i++) {
+        loop.assign(data.teamCount, 0);
+        for (int i = 0; i < data.teamCount; i++) {
             loop[i] = i;
         }
         for (int i = 0; i < totalMatches - benchmarkUM; i++) {
-            if (i%(teamCount/2) == 0 && i != 0) {
-                int temp = loop[teamCount-1];
-                for (int j = teamCount-1; j >= 2; j--) {
+            if (i%(data.teamCount/2) == 0 && i != 0) {
+                int temp = loop[data.teamCount-1];
+                for (int j = data.teamCount-1; j >= 2; j--) {
                     loop[j] = loop[j-1];
                 }
                 loop[1] = temp;
             }
 
             long long result = rng(gen);
-            int t1Ind = i%(teamCount/2);
-            int t2Ind = teamCount - i%(teamCount/2) - 1;
+            int t1Ind = i%(data.teamCount/2);
+            int t2Ind = data.teamCount - i%(data.teamCount/2) - 1;
 
             int a = std::min(loop[t1Ind], loop[t2Ind]);
             int b = std::max(loop[t1Ind], loop[t2Ind]);
 
-            int shift = b + shifts[a];
+            int shift = b + data.shifts[a];
 
-            season[0] |= result << shift;
+            data.season |= result << shift;
         }
         for (int i = totalMatches - benchmarkUM; i < totalMatches; i++) {
-            if (i%(teamCount/2) == 0 && i != 0) {
-                int temp = loop[teamCount-1];
-                for (int j = teamCount-1; j >= 2; j--) {
+            if (i%(data.teamCount/2) == 0 && i != 0) {
+                int temp = loop[data.teamCount-1];
+                for (int j = data.teamCount-1; j >= 2; j--) {
                     loop[j] = loop[j-1];
                 }
                 loop[1] = temp;
             }
 
-            int t1Ind = i%(teamCount/2);
-            int t2Ind = teamCount - i%(teamCount/2) - 1;
+            int t1Ind = i%(data.teamCount/2);
+            int t2Ind = data.teamCount - i%(data.teamCount/2) - 1;
 
             int a = std::min(loop[t1Ind], loop[t2Ind]);
             int b = std::max(loop[t1Ind], loop[t2Ind]);
 
-            int shift = b + shifts[a];
+            int shift = b + data.shifts[a];
 
-            unplayed[0] |= 1ll << shift;
+            data.unplayed |= 1ll << shift;
         }
     }
 
-    auto data = ts::seasonData(teamCount, unplayedCount[0], season[0], unplayed[0], t1Masks, t2Masks, shifts, teams);
-
     auto readFile = std::chrono::high_resolution_clock::now();
 
-    long long total = 1LL << unplayedCount[0];
+    long long total = 1LL << data.unplayedCount;
     long long increment = total/threads;
     if (total % threads != 0) {
         increment += 1;
@@ -277,7 +257,7 @@ int main(int argc, char *argv[]) {
 
     auto ranThreads = std::chrono::high_resolution_clock::now();
 
-    std::cout << "Thread count: " << threads << ", Increment: " << (n == 0 ? increment : n / threads) << ", Unplayed Count: " << unplayedCount[0] << std::endl << std::endl;
+    std::cout << "Thread count: " << threads << ", Increment: " << (n == 0 ? increment : n / threads) << ", Unplayed Count: " << data.unplayedCount << std::endl << std::endl;
 
     threadsVec.clear();
 
