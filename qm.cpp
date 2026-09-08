@@ -86,7 +86,7 @@ namespace qm {
         uint128 HS_VALUE_MASK = HS_VALUE - 1;
 
         int n;
-        uint64_t mask;
+        unsigned long long mask;
         std::vector<uint128> space;
         std::vector<uint128> contents;
 
@@ -97,7 +97,7 @@ namespace qm {
             mask = space.size() - 1;
         }
 
-        static uint64_t hash(uint128 x) {
+        static unsigned long long hash(uint128 x) {
             x ^= 0x53d4cdfafda2f0b1ull;
             #ifdef N_EXT
             x *= 0xcdfafda2f0b13ef7ull;
@@ -111,7 +111,7 @@ namespace qm {
             x ^= x >> 27;
             x ^= x >> 17;
             x ^= x >> 13;
-            return static_cast<uint64_t>(x);
+            return static_cast<unsigned long long>(x);
         }
 
         void widen(const int add_bits=1) {
@@ -124,8 +124,8 @@ namespace qm {
         }
 
         void insert(uint128 x, bool addToContents=true) {
-            uint64_t h = hash(x);
-            uint64_t idx = h & mask;
+            unsigned long long h = hash(x);
+            unsigned long long idx = h & mask;
             uint128 val = x | HS_VALUE;
             int itr = 0;
             while (space[idx] != 0) {
@@ -148,7 +148,7 @@ namespace qm {
         }
 
         [[nodiscard]] uint128 find(const uint128 x) const {
-            uint64_t idx = hash(x) & mask;
+            unsigned long long idx = hash(x) & mask;
             while (space[idx] != 0) {
                 if ((space[idx] & HS_VALUE_MASK) == x) {
                     return space[idx];
@@ -159,7 +159,7 @@ namespace qm {
         }
 
         void mark(const uint128 x) {
-            uint64_t idx = hash(x) & mask;
+            unsigned long long idx = hash(x) & mask;
             uint128 val = x | HS_VALUE;
             uint128 markedVal = val | (HS_VALUE << 1);
             while (space[idx] != 0) {
@@ -269,10 +269,10 @@ namespace qm {
         return result;
     }
 
-    inline uint64_t pow3(int e) {
+    unsigned long long pow3(int e) {
         assert(e >= 0);
-        uint64_t ret = 1;
-        uint64_t cur = 3;
+        unsigned long long ret = 1;
+        unsigned long long cur = 3;
         while (e) {
             if (e&1) {
                 ret = ret * cur;
@@ -283,8 +283,8 @@ namespace qm {
         return ret;
     }
 
-    uint64_t toTernary(uint64_t term, int n) {
-        uint64_t result = 0;
+    unsigned long long toTernary(unsigned long long term, int n) {
+        unsigned long long result = 0;
         for (int i = 0; i < n; i++) {
             result = result*3 + ((term >> i)&1);
         }
@@ -302,7 +302,7 @@ namespace qm {
     static HashSet calcDenseQm(const int n, std::vector<std::bitset<256>> *S) {
         const int nh = n-5;
 
-        const uint64_t block_size = nh > 0 ? pow3(nh) : 1;
+        const unsigned long long block_size = nh > 0 ? pow3(nh) : 1;
 
         {
             size_t step = 1;
@@ -383,10 +383,10 @@ namespace qm {
         }
 
         HashSet primes;
-        for (uint64_t term = 0; term < block_size * 243; term ++) {
+        for (unsigned long long term = 0; term < block_size * 243; term ++) {
             if (S->at(term/243)[term%243]) {
                 uint128 prime = 0;
-                uint64_t t2 = term;
+                unsigned long long t2 = term;
                 for (int i = 0; i < n; i++) {
                     prime = (prime << 2) + (t2%3);
                     t2/=3;

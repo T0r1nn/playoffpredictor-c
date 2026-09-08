@@ -16,8 +16,8 @@
 
 namespace  qm {
     std::string getStrFromQm(int n, std::vector<std::bitset<256>> *terms, std::vector<std::string> posNames, std::vector<std::string> negNames);
-    uint64_t toTernary(uint64_t term, int n);
-    inline uint64_t pow3(int e);
+    unsigned long long toTernary(unsigned long long term, int n);
+    unsigned long long pow3(int e);
     struct HashSet;
     std::vector<long long> phase2Qm(int n, HashSet primes, std::vector<long long>& terms);
     std::vector<long long> skipPhase2(int n, const HashSet& p);

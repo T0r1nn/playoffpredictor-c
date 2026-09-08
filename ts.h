@@ -20,6 +20,13 @@ namespace ts {
         int *shifts{};
         std::vector<std::string> teamNames;
     };
+
+    struct performance {
+        double getMS = 0.0;
+        double seasonMS = 0.0;
+        double procMS = 0.0;
+    };
+
     unsigned long long getSeason(const seasonData &data, unsigned long long index);
     void calculateSeason(unsigned long long season, std::vector<int> *order, std::vector<int> *highSeed, std::vector<int> *lowSeed, const seasonData &data);
     class seasonProcessor {
@@ -80,7 +87,24 @@ namespace ts {
         void processData(int pos, int threadCount, unsigned long long total) override;
         void displayData() override;
     };
-    void runPerSeason(long long increment, int pos, const seasonData &data, seasonProcessor *proc);
+
+    class narrowQmProcessor : public seasonProcessor {
+    public:
+        std::vector<std::vector<std::bitset<256>>> tbMatches;
+        std::vector<std::vector<std::bitset<256>>> ntbMatches;
+        std::vector<std::string> results;
+        std::vector<std::string> posNames;
+        std::vector<std::string> negNames;
+        seasonData sdata;
+        int targetMinSeed;
+        int targetMaxSeed;
+
+        void setupData(int threadCount, seasonData data) override;
+        void processSeason(const std::vector<int> &order, const std::vector<int> &highSeed, const std::vector<int> &lowSeed, unsigned long long season, long long u, int threadPos) override;
+        void processData(int pos, int threadCount, unsigned long long total) override;
+        void displayData() override;
+    };
+    void runPerSeason(long long increment, int pos, const seasonData &data, seasonProcessor *proc, std::vector<performance> *perfs);
     void runPerRandomSeason(long long count, int pos, const seasonData &data, std::mt19937 rng, seasonProcessor *proc);
 } // ts
 

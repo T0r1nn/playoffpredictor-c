@@ -103,6 +103,8 @@ int main(int argc, char *argv[]) {
     int benchmarkTC = 0;
     int benchmarkUM = 0;
     bool QM = false;
+    int minQM = -1;
+    int maxQM = -1;
     if (argc == 1) {
         printf("Usage:\n"
                "\tplayoffpredictor [options] <filename>\n"
@@ -113,6 +115,8 @@ int main(int argc, char *argv[]) {
                "\t--foldy\t\t\t\tEnables Foldy mode, generating a foldy sheet as a .csv file.\n"
                "\t-n <count>\t\t\tInstead of running every season, instead runs n random seasons.\n"
                "\t--qm\t\t\t\tUses the Quine-McCluskey algorithm to calculate each team's route to each seed.\n"
+               "\t--qm <maxSeed>\t\t\tUses the Quine-McCluskey algorithm to calculate each team's route to guarantee at least seed <maxSeed>\n"
+               "\t--qm <minSeed> <maxSeed>"
                "\t-bm <teamCount> <matchCount>\tWill remove the need for a file and instead generate a random season with <teamCount> teams and <matchCount> matches remaining.");
         return 0;
     }
@@ -126,6 +130,23 @@ int main(int argc, char *argv[]) {
             FOLDY = true;
         } else if (strcmp(argv[i], "--qm") == 0) {
             QM = true;
+            int a = -1;
+            int b = -1;
+            try {
+                a = std::stoi(argv[i+1]);
+                try {
+                    b = std::stoi(argv[i+2]);
+                } catch (std::invalid_argument&) {}
+            } catch (std::invalid_argument&) {}
+
+            if (a != -1 && b != -1) {
+                minQM = a - 1;
+                maxQM = b - 1;
+                i+=2;
+            } else if (a != -1) {
+                i+=1;
+                maxQM = a - 1;
+            }
         } else if (strcmp(argv[i], "-t") == 0) {
             threads = std::stoi(argv[i+1]);
             i+=1;
@@ -231,7 +252,14 @@ int main(int argc, char *argv[]) {
 
     ts::seasonProcessor* proc;
     if (QM) {
-        proc = new ts::qmProcessor();
+        if (maxQM != -1) {
+            auto qmProc = ts::narrowQmProcessor();
+            qmProc.targetMaxSeed = maxQM;
+            qmProc.targetMinSeed = std::max(0, minQM);
+            proc = &qmProc;
+        }else {
+            proc = new ts::qmProcessor();
+        }
     } else if (FOLDY){
         proc = new ts::foldyProcessor();
     } else {
@@ -241,9 +269,12 @@ int main(int argc, char *argv[]) {
 
     auto setupData = std::chrono::high_resolution_clock::now();
 
+    std::vector<ts::performance> performances;
+    performances.resize(threads);
+
     for (int i = 0; i < threads; i++) {
         if (n == 0) {
-            threadsVec.emplace_back(ts::runPerSeason, increment, i, data, proc);
+            threadsVec.emplace_back(ts::runPerSeason, increment, i, data, proc, &performances);
         } else {
             threadsVec.emplace_back(ts::runPerRandomSeason, n/threads, i, data, gen, proc);
         }
@@ -282,14 +313,32 @@ int main(int argc, char *argv[]) {
     auto threadSetupTime = msDiff(threadSetup, setupData);
     auto threadTime = msDiff(ranThreads, threadSetup);
     auto processTime = msDiff(processedData, ranThreads);
-    std::printf("Total time: %f\n\tArguments: %f\n\tFile: %f\n\tSetup Data: %f\n\tSetup Threads: %f\n\tThreads: %f\n\tProcessing Data: %f\n", totalTime, argTime, fileTime, setupTime, threadSetupTime, threadTime, processTime);
+    std::printf("Total time: %f\n\tArguments: %f\n\tFile: %f\n\tSetup Data: %f\n\tSetup Threads: %f\n\tThreads: %f\n\tProcessing Data: %f\n\n", totalTime, argTime, fileTime, setupTime, threadSetupTime, threadTime, processTime);
+
+    ts::performance totalPerf;
+
+    for (auto [getMS, seasonMS, procMS] : performances) {
+        totalPerf.getMS += getMS;
+        totalPerf.procMS += procMS;
+        totalPerf.seasonMS += seasonMS;
+    }
+
+    double totalThreadTime = totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS;
+
+    std::printf("Total thread time: %.2f\n\tGet Season: %.2f(%.2f%%)\n\tCalc Season: %.2f(%.2f%%)\n\tProcess Season: %.2f(%.2f%%)\n\n", totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS, totalPerf.getMS, 100*totalPerf.getMS/(totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS), totalPerf.seasonMS, 100*totalPerf.seasonMS/(totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS), totalPerf.procMS, 100*totalPerf.procMS/(totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS));
+
+    std::printf("Time per thread:\n");
+    for (int i = 0; i < performances.size(); i++) {
+        auto [getMS, seasonMS, procMS] = performances[i];
+        std::printf("\tThread %2d: %.2f(%.2f%%) - (%.1f, %.1f, %.1f)\n", i, getMS + procMS + seasonMS, (getMS + procMS + seasonMS)/totalThreadTime * 100, getMS, seasonMS, procMS);
+    }
+
     return 0;
 }
 
 //Still to do:
 /*
  * CUDA mode
- * Small-scope QM(for specific seed ranges)
  * Performance testing vs compressed unplayed
  * Granular performance testing
  * Any way to reduce QM RAM usage

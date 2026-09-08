@@ -16,28 +16,29 @@
 #include "qm.h"
 
 namespace ts {
-    unsigned long long getSeason(const seasonData &data, unsigned long long index) {
+
+    unsigned long long getSeason(const seasonData &data, const unsigned long long index) {
         unsigned long long x = index;
         unsigned long long y = data.unplayed;
         unsigned long long mask = 0;
-        while (x > 0) {
-            const int res = static_cast<int>(x & 1LL); // if rightmost bit is 1, result = 1
-            const unsigned long long z = y & (y-1LL); // z with the rightmost 1 flipped to 0
-            const unsigned long long maskAdd = res == 0 ? 0LL : y-z; //
-            mask += maskAdd;
-            y = z;
-            x = x>>1;
+        while (x > 0) {//O(n) since len(x) == 1
+            const int res = static_cast<int>(x & 1LL);//result of match = LSB of x
+            const unsigned long long z = y & y-1LL;//z = y with rightmost 1 removed
+            const unsigned long long maskAdd = res == 0 ? 0LL : y-z;//maskAdd = rightmost 1 of y
+            mask |= maskAdd;//add maskAdd to the mask
+            y = z;//remove rightmost 1 from y
+            x = x>>1;//shift x over 1
         }
 
         return data.season | mask;
     }
 
-    void calculateSeason(unsigned long long season, std::vector<int> *order, std::vector<int> *highSeed, std::vector<int> *lowSeed, const seasonData &data) {
+    void calculateSeason(const unsigned long long season, std::vector<int> *order, std::vector<int> *highSeed, std::vector<int> *lowSeed, const seasonData &data) {
         std::vector<unsigned long long> results(data.teamCount);
         std::vector<int> wins(data.teamCount);
         std::vector<int> tiebreakers(data.teamCount);
-        unsigned long long invSeason = ~season;
-        for (int i = 0; i < data.teamCount; i ++) {
+        const unsigned long long invSeason = ~season;
+        for (int i = 0; i < data.teamCount; i ++) {//O(m^2)
             results[i] = (invSeason & data.t1Masks[i]) | (season & data.t2Masks[i]);
             wins[i] = 0;
             tiebreakers[i] = 0;
@@ -61,7 +62,7 @@ namespace ts {
 
         for (int i = 1; i < data.teamCount; i ++) {
             int j = i-1;
-            int value = order->at(i);
+            const int value = order->at(i);
             while (j >= 0 && (wins[order->at(j)] < wins[value] || (wins[order->at(j)] == wins[value] && tiebreakers[order->at(j)] < tiebreakers[value]))) {
                 order->at(j+1) = order->at(j);
                 j = j - 1;
@@ -319,7 +320,86 @@ namespace ts {
         }
     }
 
-    void runPerSeason(const long long increment, const int pos, const seasonData &data, seasonProcessor *proc) {
+    void narrowQmProcessor::setupData(int threadCount, seasonData data) {
+        sdata = data;
+        uint64_t blockCount = sdata.unplayedCount > 5 ? qm::pow3(sdata.unplayedCount - 5) : 1;
+        tbMatches.reserve(sdata.teamCount);
+        ntbMatches.reserve(sdata.teamCount);
+        results.resize(2*sdata.teamCount);
+        for (int i = 0; i < sdata.teamCount; i++) {
+            tbMatches.emplace_back(blockCount);
+            ntbMatches.emplace_back(blockCount);
+        }
+
+        for (int i = 0; i < sdata.unplayedCount; i++) {
+            unsigned long long matchMask = 0;
+            unsigned long long y = sdata.unplayed;
+            for (int j = 0; j < i+1; j++) {
+                unsigned long long z = y & y-1LL;
+                matchMask = y-z;
+                y = z;
+            }
+            int x = 0;
+            unsigned long long m = matchMask;
+            while (m > 1) {
+                x += 1;
+                m = m >> 1;
+            }
+            int a = 0;
+            int b = 0;
+            while (b < sdata.teamCount && sdata.shifts[b] < x) {
+                b += 1;
+            }
+            b -= 1;
+            a = x - sdata.shifts[b];
+            while (a <= b) {
+                b -= 1;
+                a = x-sdata.shifts[b];
+            }
+            posNames.push_back(std::format("{} beats {}", sdata.teamNames[b], sdata.teamNames[a]));
+            negNames.push_back(std::format("{} beats {}", sdata.teamNames[a], sdata.teamNames[b]));
+        }
+    }
+
+    void narrowQmProcessor::processSeason(const std::vector<int> &order, const std::vector<int> &highSeed, const std::vector<int> &lowSeed, unsigned long long season, const long long u, int threadPos) {
+        for (int i = 0; i < sdata.teamCount; i++) {
+            if (const int team = order[i]; highSeed[team] >= targetMinSeed && lowSeed[team] <= targetMaxSeed) {
+                const unsigned long long idx = qm::toTernary(u, sdata.unplayedCount);
+                ntbMatches.at(team)[idx/243][idx%243] = true;
+            } else if (highSeed[team] >= targetMinSeed && highSeed[team] <= targetMaxSeed || lowSeed[team] >= targetMinSeed && lowSeed[team] <= targetMaxSeed){
+                const unsigned long long idx = qm::toTernary(u, sdata.unplayedCount);
+                tbMatches.at(team)[idx/243][idx%243] = true;
+            }
+        }
+    }
+
+    void narrowQmProcessor::processData(int pos, int threadCount, unsigned long long total) {
+        int start = pos * sdata.teamCount / threadCount;
+        int end = (pos + 1) * sdata.teamCount / threadCount;
+
+        for (int i = start; i < end; i++) {
+            results[i*2] = qm::getStrFromQm(sdata.unplayedCount, &tbMatches.at(i), posNames, negNames);
+            results[i*2 + 1] = qm::getStrFromQm(sdata.unplayedCount, &ntbMatches.at(i), posNames, negNames);
+        }
+    }
+
+    void narrowQmProcessor::displayData() {
+        std::cout << "Routes for each team to get between seed "<<targetMinSeed<<" and "<<targetMaxSeed<<std::endl;
+        for (int team = 0; team < sdata.teamCount; team++) {
+            std::cout << sdata.teamNames[team] << ":" << std::endl;
+            if (const std::string& tbString = results[team*2]; !tbString.empty()) {
+                std::cout << "\tSuccess(tb): " << tbString << std::endl;
+            }
+            if (const std::string& ntbString = results[team*2 + 1]; !ntbString.empty()) {
+                std::cout << "\tSuccess: " << ntbString << std::endl;
+            } else {
+                std::cout << "\tNever guarantees" << std::endl;
+            }
+            std::cout << std::endl;
+        }
+    }
+
+    void runPerSeason(const long long increment, const int pos, const seasonData &data, seasonProcessor *proc, std::vector<performance> *perfs) {
         std::vector<int> order(data.teamCount);
         std::vector<int> highSeed(data.teamCount);
         std::vector<int> lowSeed(data.teamCount);
@@ -331,10 +411,16 @@ namespace ts {
         }
 
         for (long long u = start; u < end; u++) {
+            auto start = std::chrono::high_resolution_clock::now();
             unsigned long long nSeason = getSeason(data, u);
+            auto betGetCalc = std::chrono::high_resolution_clock::now();
             calculateSeason(nSeason, &order, &highSeed, &lowSeed, data);
-
+            auto betCalcProc = std::chrono::high_resolution_clock::now();
             proc->processSeason(order, highSeed, lowSeed, nSeason, u, pos);
+            auto end = std::chrono::high_resolution_clock::now();
+            perfs->at(pos).getMS += (betGetCalc-start).count()/1.0e6;
+            perfs->at(pos).seasonMS += (betCalcProc-betGetCalc).count()/1.0e6;
+            perfs->at(pos).procMS += (end-betCalcProc).count()/1.0e6;
         }
     }
 
