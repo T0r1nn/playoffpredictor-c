@@ -306,7 +306,7 @@ namespace qm {
 
         {
             size_t step = 1;
-            for (int i = 1; i <= nh; i++) {
+            for (int i = 1; i <= nh; i++) {//this loop's order matters, but if we run it twice then it stops mattering
                 const size_t shift = step;
                 step *= 3;
                 for (size_t b = 0; b < block_size; b+=step) {
@@ -320,7 +320,7 @@ namespace qm {
             }
         }
         {
-            for (auto & i : *S) {
+            for (auto & i : *S) {//super easily parralizable, each bitset is a thread
                 auto Sa = i;
                 std::bitset<256> s, t;
 
@@ -366,10 +366,10 @@ namespace qm {
         }
         {
             size_t step = 1;
-            for (int i = 1; i <= nh; i++) {
+            for (int i = 1; i <= nh; i++) {//order does matter here and I don't really see an easy way to make it not matter
                 size_t shift = step;
                 step *= 3;
-                for (size_t b = 0; b < block_size; b+=step) {//block_size/3^i
+                    for (size_t b = 0; b < block_size; b+=step) {//block_size/3^i
                     for (size_t c = 0; c < shift; c++) {//3^(i-1)
                         const size_t id_s = b+c;
                         const size_t id_t = id_s + shift;

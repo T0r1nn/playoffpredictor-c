@@ -5,12 +5,15 @@
 #include "ts.h"
 
 #include <bitset>
+#include <chrono>
+#include <condition_variable>
 #include <format>
 #include <fstream>
 #include <iostream>
 #include <random>
 #include <string>
 #include <thread>
+#include <variant>
 #include <vector>
 
 #include "qm.h"
@@ -92,7 +95,7 @@ namespace ts {
         }
     }
 
-    void foldyProcessor::setupData(int threadCount, seasonData data) {
+    void foldyProcessor::setupData(int dThreadCount, int sThreadCount, seasonData data) {
         foldyRows.resize(1ULL << data.unplayedCount, "");
         zeroNames.reserve(data.unplayedCount);
         oneNames.reserve(data.unplayedCount);
@@ -172,24 +175,28 @@ namespace ts {
         csv.close();
     }
 
-    void statsProcessor::setupData(int threadCount, seasonData data) {
-        istats = static_cast<int *>(malloc(threadCount * data.teamCount * sizeof(int) * 2));
-        fstats = static_cast<long double *>(malloc(threadCount * data.teamCount * sizeof(long double) * 2));
+    void statsProcessor::setupData(int dThreadCount, int sThreadCount, seasonData data) {
+        istats = static_cast<int *>(malloc(sThreadCount * data.teamCount * sizeof(int) * 2));
+        fstats = static_cast<long double *>(malloc(sThreadCount * data.teamCount * sizeof(long double) * 2));
         sdata = data;
 
-        for (int i = 0; i < threadCount; i++) {
+        done = std::vector<std::atomic<bool>>(sThreadCount);
+
+        for (int i = 0; i < sThreadCount; i++) {
             for (int j = 0; j < sdata.teamCount; j++) {
                 istats[i * sdata.teamCount * 2 + j * 2] = 9;
                 istats[i * sdata.teamCount * 2 + j * 2 + 1] = 0;
                 fstats[i * sdata.teamCount * 2 + j * 2] = 0.0;
                 fstats[i * sdata.teamCount * 2 + j * 2 + 1] = 0.0;
             }
+            done[i] = false;
         }
 
         mins.resize(sdata.teamCount, 9);
         maxs.resize(sdata.teamCount, 0);
         seeds.resize(sdata.teamCount, 0);
         prob.resize(sdata.teamCount, 0);
+        sThreads = sThreadCount;
     }
 
     void statsProcessor::processSeason(const std::vector<int> &order, const std::vector<int> &highSeed, const std::vector<int> &lowSeed, unsigned long long season, long long u, int threadPos) {
@@ -212,22 +219,73 @@ namespace ts {
     }
 
     void statsProcessor::processData(int pos, int threadCount, unsigned long long total) {
-        if (pos > 0) {
-            return;
-        }
+        //calculate the minimum, maximum, seed, and prob of this thread's data, then use the tree
 
         long double totalD = static_cast<double>(total);
 
-        for (int i = 0; i < sdata.teamCount; i++) {
-            for (int j = 0; j < threadCount; j++) {
-                mins[i] = std::min(mins[i], istats[j*sdata.teamCount*2 + i*2]);
-                maxs[i] = std::max(maxs[i], istats[j*sdata.teamCount*2 + i*2 + 1]);
-                seeds[i] += fstats[j*sdata.teamCount*2 + i*2];
-                prob[i] += fstats[j*sdata.teamCount*2 + i*2 + 1];
-            }
+        auto tMins = std::vector<int>(sdata.teamCount);
+        auto tMaxs = std::vector<int>(sdata.teamCount);
+        auto tSeeds = std::vector<double>(sdata.teamCount);
+        auto tProbs = std::vector<double>(sdata.teamCount);
+        int start = pos * sThreads / threadCount;
+        int end = (pos + 1) * sThreads / threadCount;
 
-            seeds[i] /= static_cast<double>(totalD);
-            prob[i] /= static_cast<double>(totalD);
+        tMins.assign(sdata.teamCount, 9);
+        tMaxs.assign(sdata.teamCount, 0);
+        tSeeds.assign(sdata.teamCount, 0.0);
+        tProbs.assign(sdata.teamCount, 0.0);
+
+        for (int j = start; j < end; j++) {
+            for (int i = 0; i < sdata.teamCount; i++) {
+                tMins[i] = std::min(tMins[i], istats[j*sdata.teamCount*2 + i*2]);
+                if (i == 9 && istats[j*sdata.teamCount*2 + i*2] < 8) {
+                    std::printf("%d %d %d\n", pos, istats[j*sdata.teamCount*2 + i*2], j);
+                }
+                tMaxs[i] = std::max(tMaxs[i], istats[j*sdata.teamCount*2 + i*2+1]);
+                tSeeds[i] += fstats[j*sdata.teamCount*2 + i*2];
+                tProbs[i] += fstats[j*sdata.teamCount*2 + i*2+1];
+            }
+        }
+
+
+        int mask = 1;
+
+        while (mask < threadCount) {
+            if ((pos & mask) == 0 && (pos ^ mask) < threadCount) {
+                while (!done[pos ^ mask].load()) {
+                    if (done[pos ^ mask].load()) {
+                        break;
+                    }
+                }
+                const int tIndex = ((pos^mask) * sThreads / threadCount) * sdata.teamCount*2;
+                for (int i = 0; i < sdata.teamCount; i++) {
+                    tMins[i] = std::min(tMins[i], istats[tIndex + i*2]);
+                    tMaxs[i] = std::max(tMaxs[i], istats[tIndex + i*2 + 1]);
+                    tSeeds[i] += fstats[tIndex + i*2];
+                    tProbs[i] += fstats[tIndex + i*2 + 1];
+                }
+                mask <<= 1;
+            } else {
+                for (int i = 0; i < sdata.teamCount; i++) {
+                    istats[start * sdata.teamCount * 2 + i*2] = tMins[i];
+                    istats[start * sdata.teamCount * 2 + i*2 + 1] = tMaxs[i];
+                    fstats[start * sdata.teamCount * 2 + i*2] = tSeeds[i];
+                    fstats[start * sdata.teamCount * 2 + i*2 + 1] = tProbs[i];
+                }
+                done[pos] = true;
+                break;
+            }
+        }
+
+        if (pos == 0) {
+            for (int i = 0; i < sdata.teamCount; i++) {
+                tSeeds[i] /= totalD;
+                tProbs[i] /= totalD;
+            }
+            mins = tMins;
+            maxs = tMaxs;
+            seeds = tSeeds;
+            prob = tProbs;
         }
     }
 
@@ -237,9 +295,7 @@ namespace ts {
         }
     }
 
-
-
-    void qmProcessor::setupData(int threadCount, seasonData data) {
+    void qmProcessor::setupData(int dThreadCount, int sThreadCount, seasonData data) {
         sdata = data;
         int tc2 = sdata.teamCount * sdata.teamCount;
         uint64_t blockCount = sdata.unplayedCount > 5 ? qm::pow3(sdata.unplayedCount - 5) : 1;
@@ -320,7 +376,7 @@ namespace ts {
         }
     }
 
-    void narrowQmProcessor::setupData(int threadCount, seasonData data) {
+    void narrowQmProcessor::setupData(int dThreadCount, int sThreadCount, seasonData data) {
         sdata = data;
         uint64_t blockCount = sdata.unplayedCount > 5 ? qm::pow3(sdata.unplayedCount - 5) : 1;
         tbMatches.reserve(sdata.teamCount);

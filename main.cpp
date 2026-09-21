@@ -7,8 +7,10 @@
 #include <functional>
 #include <random>
 #include <thread>
+#include <variant>
 #include <vector>
 
+#include "cuda.cuh"
 #include "ts.h"
 
 static std::vector<std::vector<std::string>> readCSV(const char* filename) {
@@ -99,6 +101,7 @@ int main(int argc, char *argv[]) {
     bool CUDA = false;
     long long n = 0;
     int threads = static_cast<int>(std::thread::hardware_concurrency());
+    int cudaThreads = 56*128;
     bool FOLDY = false;
     int benchmarkTC = 0;
     int benchmarkUM = 0;
@@ -116,7 +119,7 @@ int main(int argc, char *argv[]) {
                "\t-n <count>\t\t\tInstead of running every season, instead runs n random seasons.\n"
                "\t--qm\t\t\t\tUses the Quine-McCluskey algorithm to calculate each team's route to each seed.\n"
                "\t--qm <maxSeed>\t\t\tUses the Quine-McCluskey algorithm to calculate each team's route to guarantee at least seed <maxSeed>\n"
-               "\t--qm <minSeed> <maxSeed>"
+               "\t--qm <minSeed> <maxSeed>\n"
                "\t-bm <teamCount> <matchCount>\tWill remove the need for a file and instead generate a random season with <teamCount> teams and <matchCount> matches remaining.");
         return 0;
     }
@@ -250,42 +253,64 @@ int main(int argc, char *argv[]) {
     std::vector<std::thread> threadsVec;
     threadsVec.reserve(threads);
 
-    ts::seasonProcessor* proc;
-    if (QM) {
+
+    std::variant<ts::statsProcessor, ts::foldyProcessor, ts::qmProcessor, ts::narrowQmProcessor> proc;
+    if (QM && !CUDA) {
         if (maxQM != -1) {
             auto qmProc = ts::narrowQmProcessor();
             qmProc.targetMaxSeed = maxQM;
             qmProc.targetMinSeed = std::max(0, minQM);
-            proc = &qmProc;
+            proc = qmProc;
         }else {
-            proc = new ts::qmProcessor();
+            proc = ts::qmProcessor();
         }
-    } else if (FOLDY){
-        proc = new ts::foldyProcessor();
+    } else if (FOLDY && !CUDA){
+        proc = ts::foldyProcessor();
     } else {
-        proc = new ts::statsProcessor();
+        proc = ts::statsProcessor();
     }
-    proc->setupData(threads, data);
+    if (std::holds_alternative<ts::statsProcessor>(proc)) {
+        std::get<ts::statsProcessor>(proc).setupData(threads, CUDA ? cudaThreads : threads, data);
+    } else if (std::holds_alternative<ts::foldyProcessor>(proc)) {
+        std::get<ts::foldyProcessor>(proc).setupData(threads, CUDA ? cudaThreads : threads, data);
+    } else if (std::holds_alternative<ts::qmProcessor>(proc)) {
+        std::get<ts::qmProcessor>(proc).setupData(threads, CUDA ? cudaThreads : threads, data);
+    } else if (std::holds_alternative<ts::narrowQmProcessor>(proc)) {
+        std::get<ts::narrowQmProcessor>(proc).setupData(threads, CUDA ? cudaThreads : threads, data);
+    }
 
     auto setupData = std::chrono::high_resolution_clock::now();
-
     std::vector<ts::performance> performances;
     performances.resize(threads);
 
-    for (int i = 0; i < threads; i++) {
-        if (n == 0) {
-            threadsVec.emplace_back(ts::runPerSeason, increment, i, data, proc, &performances);
-        } else {
-            threadsVec.emplace_back(ts::runPerRandomSeason, n/threads, i, data, gen, proc);
+    if (CUDA) {
+        auto cdata = cuda::seasonData(data);
+        cuda::cudaRunPerSeason(cudaThreads/128, 128, cdata, std::get<ts::statsProcessor>(proc));
+    } else {
+        ts::seasonProcessor *nProc;
+
+        if (std::holds_alternative<ts::statsProcessor>(proc)) {
+            nProc = &std::get<ts::statsProcessor>(proc);
+        } else if (std::holds_alternative<ts::foldyProcessor>(proc)) {
+            nProc = &std::get<ts::foldyProcessor>(proc);
+        } else if (std::holds_alternative<ts::qmProcessor>(proc)) {
+            nProc = &std::get<ts::qmProcessor>(proc);
+        } else if (std::holds_alternative<ts::narrowQmProcessor>(proc)) {
+            nProc = &std::get<ts::narrowQmProcessor>(proc);
+        }
+
+        for (int i = 0; i < threads; i++) {
+            if (n == 0) {
+                threadsVec.emplace_back(ts::runPerSeason, increment, i, data, nProc, &performances);
+            } else {
+                threadsVec.emplace_back(ts::runPerRandomSeason, n/threads, i, data, gen, nProc);
+            }
+        }
+
+        for (int i = 0; i < threads; i++) {
+            threadsVec.at(i).join();
         }
     }
-
-    auto threadSetup = std::chrono::high_resolution_clock::now();
-
-    for (int i = 0; i < threads; i++) {
-        threadsVec.at(i).join();
-    }
-
     auto ranThreads = std::chrono::high_resolution_clock::now();
 
     std::cout << "Thread count: " << threads << ", Increment: " << (n == 0 ? increment : n / threads) << ", Unplayed Count: " << data.unplayedCount << std::endl << std::endl;
@@ -293,7 +318,15 @@ int main(int argc, char *argv[]) {
     threadsVec.clear();
 
     for (int i = 0; i < threads; i++) {
-        threadsVec.push_back(proc->spawnDataThread(i, threads, n==0 ? total : n));
+        if (std::holds_alternative<ts::statsProcessor>(proc)) {
+            threadsVec.push_back(std::get<ts::statsProcessor>(proc).spawnDataThread(i, threads, n==0 ? total : n));
+        } else if (std::holds_alternative<ts::foldyProcessor>(proc)) {
+            threadsVec.push_back(std::get<ts::foldyProcessor>(proc).spawnDataThread(i, threads, n==0 ? total : n));
+        } else if (std::holds_alternative<ts::qmProcessor>(proc)) {
+            threadsVec.push_back(std::get<ts::qmProcessor>(proc).spawnDataThread(i, threads, n==0 ? total : n));
+        } else if (std::holds_alternative<ts::narrowQmProcessor>(proc)) {
+            threadsVec.push_back(std::get<ts::narrowQmProcessor>(proc).spawnDataThread(i, threads, n==0 ? total : n));
+        }
     }
 
     for (int i = 0; i < threads; i++) {
@@ -301,7 +334,15 @@ int main(int argc, char *argv[]) {
     }
 
     if (benchmarkTC == 0) {
-        proc->displayData();
+        if (std::holds_alternative<ts::statsProcessor>(proc)) {
+            std::get<ts::statsProcessor>(proc).displayData();
+        } else if (std::holds_alternative<ts::foldyProcessor>(proc)) {
+            std::get<ts::foldyProcessor>(proc).displayData();
+        } else if (std::holds_alternative<ts::qmProcessor>(proc)) {
+            std::get<ts::qmProcessor>(proc).displayData();
+        } else if (std::holds_alternative<ts::narrowQmProcessor>(proc)) {
+            std::get<ts::narrowQmProcessor>(proc).displayData();
+        }
     }
 
     auto processedData = std::chrono::high_resolution_clock::now();
@@ -310,37 +351,32 @@ int main(int argc, char *argv[]) {
     auto argTime = msDiff(processedArgs, start);
     auto fileTime = msDiff(readFile, processedArgs);
     auto setupTime = msDiff(setupData, readFile);
-    auto threadSetupTime = msDiff(threadSetup, setupData);
-    auto threadTime = msDiff(ranThreads, threadSetup);
+    auto threadTime = msDiff(ranThreads, setupData);
     auto processTime = msDiff(processedData, ranThreads);
-    std::printf("Total time: %f\n\tArguments: %f\n\tFile: %f\n\tSetup Data: %f\n\tSetup Threads: %f\n\tThreads: %f\n\tProcessing Data: %f\n\n", totalTime, argTime, fileTime, setupTime, threadSetupTime, threadTime, processTime);
+    std::printf("Total time: %f\n\tArguments: %f\n\tFile: %f\n\tSetup Data: %f\n\tThreads: %f\n\tProcessing Data: %f\n\n", totalTime, argTime, fileTime, setupTime, threadTime, processTime);
+    if (!CUDA) {
+        ts::performance totalPerf;
 
-    ts::performance totalPerf;
+        for (auto [getMS, seasonMS, procMS] : performances) {
+            totalPerf.getMS += getMS;
+            totalPerf.procMS += procMS;
+            totalPerf.seasonMS += seasonMS;
+        }
 
-    for (auto [getMS, seasonMS, procMS] : performances) {
-        totalPerf.getMS += getMS;
-        totalPerf.procMS += procMS;
-        totalPerf.seasonMS += seasonMS;
+        double totalThreadTime = totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS;
+
+        std::printf("Total thread time: %.2f\n\tGet Season: %.2f(%.2f%%)\n\tCalc Season: %.2f(%.2f%%)\n\tProcess Season: %.2f(%.2f%%)\n\n", totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS, totalPerf.getMS, 100*totalPerf.getMS/(totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS), totalPerf.seasonMS, 100*totalPerf.seasonMS/(totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS), totalPerf.procMS, 100*totalPerf.procMS/(totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS));
+
+        std::printf("Time per thread:\n");
+        for (int i = 0; i < performances.size(); i++) {
+            auto [getMS, seasonMS, procMS] = performances[i];
+            std::printf("\tThread %2d: %.2f(%.2f%%) - (%.1f, %.1f, %.1f)\n", i, getMS + procMS + seasonMS, (getMS + procMS + seasonMS)/totalThreadTime * 100, getMS, seasonMS, procMS);
+        }
     }
-
-    double totalThreadTime = totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS;
-
-    std::printf("Total thread time: %.2f\n\tGet Season: %.2f(%.2f%%)\n\tCalc Season: %.2f(%.2f%%)\n\tProcess Season: %.2f(%.2f%%)\n\n", totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS, totalPerf.getMS, 100*totalPerf.getMS/(totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS), totalPerf.seasonMS, 100*totalPerf.seasonMS/(totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS), totalPerf.procMS, 100*totalPerf.procMS/(totalPerf.getMS + totalPerf.procMS + totalPerf.seasonMS));
-
-    std::printf("Time per thread:\n");
-    for (int i = 0; i < performances.size(); i++) {
-        auto [getMS, seasonMS, procMS] = performances[i];
-        std::printf("\tThread %2d: %.2f(%.2f%%) - (%.1f, %.1f, %.1f)\n", i, getMS + procMS + seasonMS, (getMS + procMS + seasonMS)/totalThreadTime * 100, getMS, seasonMS, procMS);
-    }
-
     return 0;
 }
 
 //Still to do:
 /*
- * CUDA mode
- * Performance testing vs compressed unplayed
- * Granular performance testing
- * Any way to reduce QM RAM usage
  * Multithread the QM algo itself instead of just running multiple QMs in parallel
  */

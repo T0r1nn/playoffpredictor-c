@@ -5,6 +5,7 @@
 #ifndef PLAYOFFPREDICTOR_THREADSEASONS_H
 #define PLAYOFFPREDICTOR_THREADSEASONS_H
 #include <bitset>
+#include <mutex>
 #include <random>
 #include <thread>
 #include <vector>
@@ -33,7 +34,7 @@ namespace ts {
     public:
         virtual ~seasonProcessor() = default;
 
-        virtual void setupData(int threadCount, seasonData data) = 0;
+        virtual void setupData(int dThreadCount, int sThreadCount, seasonData data) = 0;
 
         virtual void processSeason(const std::vector<int> &order, const std::vector<int> &highSeed, const std::vector<int> &lowSeed, unsigned long long season, long long u, int threadPos) = 0;
 
@@ -53,7 +54,7 @@ namespace ts {
         std::vector<std::string> oneNames;
         std::string headerRow;
 
-        void setupData(int threadCount, seasonData data) override;
+        void setupData(int dThreadCount, int sThreadCount, seasonData data) override;
         void processSeason(const std::vector<int> &order, const std::vector<int> &highSeed, const std::vector<int> &lowSeed, unsigned long long season, long long u, int threadPos) override;
         void processData(int pos, int threadCount, unsigned long long total) override;
         void displayData() override;
@@ -67,8 +68,10 @@ namespace ts {
         std::vector<int> maxs;
         std::vector<double> seeds;
         std::vector<double> prob;
+        std::vector<std::atomic<bool>> done;
+        int sThreads;
 
-        void setupData(int threadCount, seasonData data) override;
+        void setupData(int dThreadCount, int sThreadCount, seasonData data) override;
         void processSeason(const std::vector<int> &order, const std::vector<int> &highSeed, const std::vector<int> &lowSeed, unsigned long long season, long long u, int threadPos) override;
         void processData(int pos, int threadCount, unsigned long long total) override;
         void displayData() override;
@@ -82,7 +85,7 @@ namespace ts {
         std::vector<std::string> negNames;
         seasonData sdata;
 
-        void setupData(int threadCount, seasonData data) override;
+        void setupData(int dThreadCount, int sThreadCount, seasonData data) override;
         void processSeason(const std::vector<int> &order, const std::vector<int> &highSeed, const std::vector<int> &lowSeed, unsigned long long season, long long u, int threadPos) override;
         void processData(int pos, int threadCount, unsigned long long total) override;
         void displayData() override;
@@ -99,7 +102,7 @@ namespace ts {
         int targetMinSeed;
         int targetMaxSeed;
 
-        void setupData(int threadCount, seasonData data) override;
+        void setupData(int dThreadCount, int sThreadCount, seasonData data) override;
         void processSeason(const std::vector<int> &order, const std::vector<int> &highSeed, const std::vector<int> &lowSeed, unsigned long long season, long long u, int threadPos) override;
         void processData(int pos, int threadCount, unsigned long long total) override;
         void displayData() override;
