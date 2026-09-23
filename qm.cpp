@@ -14,8 +14,8 @@
 #include <ranges>
 #include <utility>
 
-static uint128 convert(long long term, int n) {
-    uint128 result = 0;
+static unsigned long long convert(long long term, int n) {
+    unsigned long long result = 0;
     for (int i = 0; i < n; i ++) {
         result = result << 2;
         result += (term >> (n-i-1)) & 1;
@@ -23,16 +23,16 @@ static uint128 convert(long long term, int n) {
     return result;
 }
 
-static auto convert_back(uint128 prime, int n, long long arr[]) {
-    long long ones = 0;
-    long long zeros = 0;
+static auto convert_back(unsigned long long prime, int n, unsigned long long arr[]) {
+    unsigned long long ones = 0;
+    unsigned long long zeros = 0;
     for (int k = 0; k < n; k++) {
-        uint128 check = (prime >> ((n-k-1)*2)) & 0b11;
+        unsigned long long check = (prime >> ((n-k-1)*2)) & 0b11;
         if (check == 1) {
-            ones += static_cast<uint128>(1) << (n-k-1);
+            ones += 1ULL << (n-k-1);
         }
         if (check == 2) {
-            zeros += static_cast<uint128>(1) << (n-k-1);
+            zeros += 1ULL << (n-k-1);
         }
     }
     arr[0] = ones;
@@ -81,14 +81,14 @@ namespace {
 
 namespace qm {
     struct HashSet {
-        uint128 ONE = 1;
-        uint128 HS_VALUE = ONE << 126;
-        uint128 HS_VALUE_MASK = HS_VALUE - 1;
+        unsigned long long ONE = 1;
+        unsigned long long HS_VALUE = ONE << 62;
+        unsigned long long HS_VALUE_MASK = HS_VALUE - 1;
 
         int n;
         unsigned long long mask;
-        std::vector<uint128> space;
-        std::vector<uint128> contents;
+        std::vector<unsigned long long> space;
+        std::vector<unsigned long long> contents;
 
         HashSet() {
             constexpr int bits = 4;
@@ -97,7 +97,19 @@ namespace qm {
             mask = space.size() - 1;
         }
 
-        static unsigned long long hash(uint128 x) {
+        void reserve(size_t amount) {
+            amount *= 2;
+            int e = 0;
+            while (amount) {
+                amount >>= 1;
+                e++;
+            }
+            if (e > n) {
+                widen(e - n);
+            }
+        }
+
+        static unsigned long long hash(unsigned long long x) {
             x ^= 0x53d4cdfafda2f0b1ull;
             #ifdef N_EXT
             x *= 0xcdfafda2f0b13ef7ull;
@@ -123,10 +135,10 @@ namespace qm {
             }
         }
 
-        void insert(uint128 x, bool addToContents=true) {
+        void insert(unsigned long long x, bool addToContents=true) {
             unsigned long long h = hash(x);
             unsigned long long idx = h & mask;
-            uint128 val = x | HS_VALUE;
+            unsigned long long val = x | HS_VALUE;
             int itr = 0;
             while (space[idx] != 0) {
                 if (space[idx] == val) {
@@ -147,7 +159,7 @@ namespace qm {
             }
         }
 
-        [[nodiscard]] uint128 find(const uint128 x) const {
+        [[nodiscard]] unsigned long long find(const unsigned long long x) const {
             unsigned long long idx = hash(x) & mask;
             while (space[idx] != 0) {
                 if ((space[idx] & HS_VALUE_MASK) == x) {
@@ -158,10 +170,10 @@ namespace qm {
             return 0;
         }
 
-        void mark(const uint128 x) {
+        void mark(const unsigned long long x) {
             unsigned long long idx = hash(x) & mask;
-            uint128 val = x | HS_VALUE;
-            uint128 markedVal = val | (HS_VALUE << 1);
+            unsigned long long val = x | HS_VALUE;
+            unsigned long long markedVal = val | (HS_VALUE << 1);
             while (space[idx] != 0) {
                 if (space[idx] == val || space[idx] == markedVal) {
                     space[idx] = markedVal;
@@ -171,8 +183,8 @@ namespace qm {
             }
         }
 
-        [[nodiscard]] std::vector<uint128> list() const {
-            std::vector<uint128> ret;
+        [[nodiscard]] std::vector<unsigned long long> list() const {
+            std::vector<unsigned long long> ret;
             ret.reserve(contents.size());
             for (auto x : contents) {
                 if (find(x) == (x | HS_VALUE)) {
@@ -189,22 +201,25 @@ namespace qm {
         }
     };
 
-    std::vector<long long> phase2Qm(int n, HashSet primes, std::vector<long long>& terms) {
-        std::vector<uint128> finalPrimes;
-        std::vector<uint128> victim;
-        std::vector<uint128> nextVictim;
+    std::vector<unsigned long long> phase2Qm(int n, const std::vector<unsigned long long> &primes, std::vector<long long>& terms) {
+        std::vector<unsigned long long> finalPrimes;
+        std::vector<unsigned long long> victim;
+        std::vector<unsigned long long> nextVictim;
         std::vector<HashSet> sets;
-        sets.assign(primes.contents.size(), HashSet());
-        for (auto term : terms) {
-            auto nt = convert(term, n);
-            for (int i = 0; i < primes.contents.size(); i++) {
+        HashSet p;
+        p.reserve(primes.size());
+        for (const auto u : primes) {
+            p.insert(u);
+        }
+        sets.assign(p.contents.size(), HashSet());
+        for (const auto term : terms) {
+            const auto nt = convert(term, n);
+            for (int i = 0; i < p.contents.size(); i++) {
                 bool works = true;
-                auto prime = primes.contents.at(i);
+                const auto prime = p.contents.at(i);
                 for (int j = 0; j < n; j++) {
-                    auto primeType = (prime >> (2*j))&3;
-                    if (primeType != 2) {
-                        auto termType = (nt >> (2*j))&3;
-                        if (primeType != termType) {
+                    if (auto primeType = (prime >> (2*j))&3; primeType != 2) {
+                        if (auto termType = (nt >> (2*j))&3; primeType != termType) {
                             works = false;
                             break;
                         }
@@ -218,18 +233,17 @@ namespace qm {
         unsigned long long maxLen = 1;
         while (maxLen != 0) {
             maxLen = 0;
-            uint128 temp = -1;
-            std::vector<uint128> primesList = primes.list();
+            unsigned long long temp = -1;
+            std::vector<unsigned long long> primesList = p.list();
             for (int i = 0; i < primesList.size(); i++) {
-                uint128 prime = primesList.at(i);
+                const unsigned long long prime = primesList.at(i);
                 HashSet set = sets.at(i);
-                for (uint128 item : victim) {
+                for (const unsigned long long item : victim) {
                     if (set.find(item) != 0) {
                         set.mark(item);
                     }
                 }
-                std::vector<uint128> setList = set.list();
-                if (setList.size() > maxLen) {
+                if (std::vector<unsigned long long> setList = set.list(); setList.size() > maxLen) {
                     maxLen = setList.size();
                     temp = prime;
                     nextVictim = setList;
@@ -237,18 +251,18 @@ namespace qm {
             }
 
             if (temp != -1) {
-                primes.mark(temp);
+                p.mark(temp);
                 std::swap(victim, nextVictim);
                 nextVictim.clear();
                 finalPrimes.push_back(temp);
             }
         }
 
-        primes.clear();
+        p.clear();
 
-        std::vector<long long> result = std::vector<long long>();
-        for (uint128 finalPrime : finalPrimes) {
-            long long minterm[2];
+        auto result = std::vector<unsigned long long>();
+        for (unsigned long long finalPrime : finalPrimes) {
+            unsigned long long minterm[2];
             convert_back(finalPrime, n, minterm);
             result.push_back(minterm[0]);
             result.push_back(minterm[1]);
@@ -257,10 +271,10 @@ namespace qm {
         return result;
     }
 
-    std::vector<long long> skipPhase2(int n, const HashSet& p) {
-        std::vector<long long> result = std::vector<long long>();
-        for (uint128 finalPrime : p.contents) {
-            long long minterm[2];
+    std::vector<unsigned long long> skipPhase2(int n, const std::vector<unsigned long long> &p) {
+        std::vector<unsigned long long> result = std::vector<unsigned long long>();
+        for (unsigned long long finalPrime : p) {
+            unsigned long long minterm[2];
             convert_back(finalPrime, n, minterm);
             result.push_back(minterm[0]);
             result.push_back(minterm[1]);
@@ -299,7 +313,61 @@ namespace qm {
         std::bitset<256>("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000111111111111111111111111111111111111111111111111111111111111111111111111111111111")
     };
 
-    static HashSet calcDenseQm(const int n, std::vector<std::bitset<256>> *S) {
+    static std::vector<unsigned long long> calcSparseQm(const int n, std::vector<long long> *terms) {
+        HashSet S;
+        HashSet S2;
+        for (long long term : *terms) {
+            S.insert(convert(term, n));
+        }
+
+        std::vector<unsigned long long> primes;
+        for (int w = 0; w < n; w++) {
+            std::vector<unsigned long long> news;
+            news.reserve(S.contents.size());
+            for (const auto s : S.contents) {
+                auto ss = s;
+                for (int i = 0; i < n; i++) {
+                    if (auto type = ss & 3; type == 0) {
+                        if (const unsigned long long t = s ^ (1ULL << (2 * i)); S.find(t)) {
+                            unsigned long long u = s ^ (2ULL << (2 * i));
+                            news.push_back(u);
+                        }
+                    } else if (type == 2) {
+                        break;
+                    }
+                }
+            }
+            S2.reserve(news.size());
+            for (const auto u : news) {
+                S2.insert(u);
+                for (int i = 0; i < n; i++) {
+                    if (const auto type = (u >> (2*i))&3; type == 2) { // 10 -> *
+                        const auto s = u ^ (2ULL << (2*i)); // 00 -> 0
+                        const auto t = u ^ (3ULL << (2*i)); // 01 -> 1
+                        S.mark(s);
+                        S.mark(t);
+                    }
+                }
+            }
+
+            for (const auto s : S.list()) {
+                primes.push_back(s);
+            }
+
+            S.clear();
+            std::swap(S, S2);
+
+            if (S.contents.empty()) {
+                break;
+            }
+        }
+        for (auto u : S.contents) {
+            primes.push_back(u);
+        }
+        return primes;
+    }
+
+    static std::vector<unsigned long long> calcDenseQm(const int n, std::vector<std::bitset<256>> *S) {
         const int nh = n-5;
 
         const unsigned long long block_size = nh > 0 ? pow3(nh) : 1;
@@ -382,22 +450,22 @@ namespace qm {
             }
         }
 
-        HashSet primes;
+        std::vector<unsigned long long> primes;
         for (unsigned long long term = 0; term < block_size * 243; term ++) {
             if (S->at(term/243)[term%243]) {
-                uint128 prime = 0;
+                unsigned long long prime = 0;
                 unsigned long long t2 = term;
                 for (int i = 0; i < n; i++) {
                     prime = (prime << 2) + (t2%3);
                     t2/=3;
                 }
-               primes.insert(prime);
+               primes.push_back(prime);
             }
         }
         return primes;
     }
 
-    static TreeInfo createTree(int n, std::vector<long long> qm, std::vector<std::string> posNames, std::vector<std::string> negNames) {
+    static TreeInfo createTree(int n, std::vector<unsigned long long> qm, std::vector<std::string> posNames, std::vector<std::string> negNames) {
         Node baseNode = Node{.nodeType = "|"};
         std::vector<Node> terms = std::vector<Node>();
         std::map duplicityMap = std::map<std::string, int>();
@@ -412,10 +480,10 @@ namespace qm {
         for (int i = 0; i < qm.size(); i+=2) {
             std::vector<Node> andTerms = std::vector<Node>();
             for (int k = 0; k < n; k++) {
-                if ((qm.at(i) & (static_cast<uint128>(1) << k)) != 0) {
+                if ((qm.at(i) & (static_cast<unsigned long long>(1) << k)) != 0) {
                     andTerms.push_back(terms.at(2*k));
                     duplicityMap[terms.at(2*k).nodeType] += 1;
-                } else if ((~qm.at(i+1) & (static_cast<uint128>(1)) << k) != 0) {
+                } else if ((~qm.at(i+1) & (static_cast<unsigned long long>(1)) << k) != 0) {
                     andTerms.push_back(terms.at(2*k+1));
                     duplicityMap[terms.at(2*k+1).nodeType] += 1;
                 }
@@ -518,7 +586,7 @@ namespace qm {
     std::string getStrFromQm(int n, std::vector<std::bitset<256>> *terms, std::vector<std::string> posNames, std::vector<std::string> negNames) {
         auto simplified = skipPhase2(n, calcDenseQm(n, terms));
 
-        if (simplified.size() == 2 && simplified[1] == (1ll << n) - 1) {
+        if (simplified.size() == 2 && simplified[1] == (1ull << n) - 1) {
             return "Always";
         }
 

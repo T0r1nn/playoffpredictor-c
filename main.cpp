@@ -10,7 +10,11 @@
 #include <variant>
 #include <vector>
 
+//#define CUDA
+
+#ifdef CUDA
 #include "cuda.cuh"
+#endif
 #include "ts.h"
 
 static std::vector<std::vector<std::string>> readCSV(const char* filename) {
@@ -139,8 +143,8 @@ int main(int argc, char *argv[]) {
                 a = std::stoi(argv[i+1]);
                 try {
                     b = std::stoi(argv[i+2]);
-                } catch (std::invalid_argument&) {}
-            } catch (std::invalid_argument&) {}
+                } catch (std::logic_error&) {}
+            } catch (std::logic_error&) {}
 
             if (a != -1 && b != -1) {
                 minQM = a - 1;
@@ -161,7 +165,7 @@ int main(int argc, char *argv[]) {
             benchmarkUM = std::stoi(argv[i+2]);
             i+=2;
         } else {
-            throw std::invalid_argument(std::format("Unsupported argument: {}", argv[i]));
+            throw std::invalid_argument(std::format("Unsupported argument: {}", argv[i]).c_str());
         }
     }
     auto processedArgs = std::chrono::high_resolution_clock::now();
@@ -245,10 +249,7 @@ int main(int argc, char *argv[]) {
     auto readFile = std::chrono::high_resolution_clock::now();
 
     long long total = 1LL << data.unplayedCount;
-    long long increment = total/threads;
-    if (total % threads != 0) {
-        increment += 1;
-    }
+    long long increment = total/threads + (total % threads != 0);
 
     std::vector<std::thread> threadsVec;
     threadsVec.reserve(threads);
@@ -284,8 +285,10 @@ int main(int argc, char *argv[]) {
     performances.resize(threads);
 
     if (CUDA) {
+        #ifdef CUDA
         auto cdata = cuda::seasonData(data);
         cuda::cudaRunPerSeason(cudaThreads/128, 128, cdata, std::get<ts::statsProcessor>(proc));
+        #endif
     } else {
         ts::seasonProcessor *nProc;
 

@@ -341,11 +341,11 @@ namespace ts {
         for (int i = 0; i < sdata.teamCount; i++) {
             if (const int team = order[i]; highSeed[team] == lowSeed[team]) {
                 const unsigned long long idx = qm::toTernary(u, sdata.unplayedCount);
-                ntbMatches.at(team*sdata.teamCount + highSeed[team])[idx/243][idx%243] = true;
+                ntbMatches.at(team*sdata.teamCount + highSeed[team])[idx/243][idx%243] = true;//Thread unsafe, fix!!!
             } else {
                 for (int seed = highSeed[team]; seed <= lowSeed[team]; seed++) {
                     const unsigned long long idx = qm::toTernary(u, sdata.unplayedCount);
-                    tbMatches.at(team*sdata.teamCount + seed)[idx/243][idx%243] = true;
+                    tbMatches.at(team*sdata.teamCount + seed)[idx/243][idx%243] = true;//Thread unsafe, fix!!!
                 }
             }
         }
@@ -443,13 +443,13 @@ namespace ts {
         std::cout << "Routes for each team to get between seed "<<targetMinSeed<<" and "<<targetMaxSeed<<std::endl;
         for (int team = 0; team < sdata.teamCount; team++) {
             std::cout << sdata.teamNames[team] << ":" << std::endl;
-            if (const std::string& tbString = results[team*2]; !tbString.empty()) {
-                std::cout << "\tSuccess(tb): " << tbString << std::endl;
-            }
             if (const std::string& ntbString = results[team*2 + 1]; !ntbString.empty()) {
                 std::cout << "\tSuccess: " << ntbString << std::endl;
             } else {
                 std::cout << "\tNever guarantees" << std::endl;
+            }
+            if (const std::string& tbString = results[team*2]; !tbString.empty()) {
+                std::cout << "\tSuccess(tb): " << tbString << std::endl;
             }
             std::cout << std::endl;
         }
