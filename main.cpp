@@ -261,7 +261,7 @@ int main(int argc, char *argv[]) {
             auto qmProc = ts::narrowQmProcessor();
             qmProc.targetMaxSeed = maxQM;
             qmProc.targetMinSeed = std::max(0, minQM);
-            proc = qmProc;
+            proc = std::move(qmProc);
         }else {
             proc = ts::qmProcessor();
         }

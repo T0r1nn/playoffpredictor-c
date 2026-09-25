@@ -5,7 +5,6 @@
 #ifndef PLAYOFFPREDICTOR_THREADSEASONS_H
 #define PLAYOFFPREDICTOR_THREADSEASONS_H
 #include <bitset>
-#include <mutex>
 #include <random>
 #include <thread>
 #include <vector>
@@ -78,12 +77,14 @@ namespace ts {
     };
     class qmProcessor : public seasonProcessor {
     public:
-        std::vector<std::vector<std::bitset<256>>> tbMatches;
-        std::vector<std::vector<std::bitset<256>>> ntbMatches;
+        std::vector<std::vector<std::vector<unsigned long long>>> tbMatches;
+        std::vector<std::vector<std::vector<unsigned long long>>> ntbMatches;
         std::vector<std::string> results;
         std::vector<std::string> posNames;
         std::vector<std::string> negNames;
         seasonData sdata;
+        std::vector<std::atomic<bool>> done;
+        int sThreads;
 
         void setupData(int dThreadCount, int sThreadCount, seasonData data) override;
         void processSeason(const std::vector<int> &order, const std::vector<int> &highSeed, const std::vector<int> &lowSeed, unsigned long long season, long long u, int threadPos) override;
@@ -93,12 +94,14 @@ namespace ts {
 
     class narrowQmProcessor : public seasonProcessor {
     public:
-        std::vector<std::vector<std::bitset<256>>> tbMatches;
-        std::vector<std::vector<std::bitset<256>>> ntbMatches;
+        std::vector<std::vector<std::vector<unsigned long long>>> tbMatches;
+        std::vector<std::vector<std::vector<unsigned long long>>> ntbMatches;
         std::vector<std::string> results;
         std::vector<std::string> posNames;
         std::vector<std::string> negNames;
         seasonData sdata;
+        std::vector<std::atomic<bool>> done;
+        int sThreads;
         int targetMinSeed;
         int targetMaxSeed;
 

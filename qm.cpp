@@ -14,7 +14,7 @@
 #include <ranges>
 #include <utility>
 
-static unsigned long long convert(long long term, int n) {
+static unsigned long long convert(const unsigned long long term, const int n) {
     unsigned long long result = 0;
     for (int i = 0; i < n; i ++) {
         result = result << 2;
@@ -80,6 +80,13 @@ namespace {
 }
 
 namespace qm {
+    struct ConcurrentHashSet {
+        unsigned long long ONE = 1;
+        unsigned long long HS_VALUE = ONE << 62;
+        unsigned long long HS_VALUE_MASK = HS_VALUE - 1;
+        int n;
+    };
+
     struct HashSet {
         unsigned long long ONE = 1;
         unsigned long long HS_VALUE = ONE << 62;
@@ -313,10 +320,10 @@ namespace qm {
         std::bitset<256>("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000111111111111111111111111111111111111111111111111111111111111111111111111111111111")
     };
 
-    static std::vector<unsigned long long> calcSparseQm(const int n, std::vector<long long> *terms) {
+    static std::vector<unsigned long long> calcSparseQm(const int n, const std::vector<unsigned long long> &terms) {
         HashSet S;
         HashSet S2;
-        for (long long term : *terms) {
+        for (const unsigned long long term : terms) {
             S.insert(convert(term, n));
         }
 
@@ -327,7 +334,7 @@ namespace qm {
             for (const auto s : S.contents) {
                 auto ss = s;
                 for (int i = 0; i < n; i++) {
-                    if (auto type = ss & 3; type == 0) {
+                    if (const auto type = ss & 3; type == 0) {
                         if (const unsigned long long t = s ^ (1ULL << (2 * i)); S.find(t)) {
                             unsigned long long u = s ^ (2ULL << (2 * i));
                             news.push_back(u);
@@ -335,6 +342,7 @@ namespace qm {
                     } else if (type == 2) {
                         break;
                     }
+                    ss >>= 2;
                 }
             }
             S2.reserve(news.size());
@@ -367,10 +375,16 @@ namespace qm {
         return primes;
     }
 
-    static std::vector<unsigned long long> calcDenseQm(const int n, std::vector<std::bitset<256>> *S) {
+    static std::vector<unsigned long long> calcDenseQm(const int n, const std::vector<unsigned long long> &terms) {
         const int nh = n-5;
 
         const unsigned long long block_size = nh > 0 ? pow3(nh) : 1;
+
+        auto S = std::vector<std::bitset<256>>(block_size);
+        for (const auto term : terms) {
+            const unsigned long long idx = toTernary(term, n);
+            S[idx/243][idx%243] = true;
+        }
 
         {
             size_t step = 1;
@@ -382,13 +396,13 @@ namespace qm {
                         const size_t id_s = b+c;
                         const size_t id_t = id_s + shift;
                         const size_t id_u = id_t + shift;
-                        S->at(id_u) |= S->at(id_s) & S->at(id_u);
+                        S.at(id_u) |= S.at(id_s) & S.at(id_u);
                     }
                 }
             }
         }
         {
-            for (auto & i : *S) {//super easily parralizable, each bitset is a thread
+            for (auto & i : S) {//super easily parralizable, each bitset is a thread
                 auto Sa = i;
                 std::bitset<256> s, t;
 
@@ -442,9 +456,9 @@ namespace qm {
                         const size_t id_s = b+c;
                         const size_t id_t = id_s + shift;
                         const size_t id_u = id_t + shift;
-                        const auto tmp = ~S->at(id_u);
-                        S->at(id_s) &= tmp;
-                        S->at(id_t) &= tmp;
+                        const auto tmp = ~S.at(id_u);
+                        S.at(id_s) &= tmp;
+                        S.at(id_t) &= tmp;
                     }
                 }
             }
@@ -452,7 +466,7 @@ namespace qm {
 
         std::vector<unsigned long long> primes;
         for (unsigned long long term = 0; term < block_size * 243; term ++) {
-            if (S->at(term/243)[term%243]) {
+            if (S.at(term/243)[term%243]) {
                 unsigned long long prime = 0;
                 unsigned long long t2 = term;
                 for (int i = 0; i < n; i++) {
@@ -583,8 +597,14 @@ namespace qm {
         return tree;
     }
 
-    std::string getStrFromQm(int n, std::vector<std::bitset<256>> *terms, std::vector<std::string> posNames, std::vector<std::string> negNames) {
-        auto simplified = skipPhase2(n, calcDenseQm(n, terms));
+    std::string getStrFromQm(int n, const std::vector<unsigned long long>& terms, std::vector<std::string> posNames, std::vector<std::string> negNames) {
+        double density = static_cast<double>(terms.size())/static_cast<double>(1ull << n);
+        std::vector<unsigned long long> simplified;
+        if (density > 0.4) {
+            simplified = skipPhase2(n, calcDenseQm(n, terms));
+        }else {
+            simplified = skipPhase2(n, calcSparseQm(n, terms));
+        }
 
         if (simplified.size() == 2 && simplified[1] == (1ull << n) - 1) {
             return "Always";

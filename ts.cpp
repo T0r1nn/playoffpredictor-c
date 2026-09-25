@@ -12,8 +12,6 @@
 #include <iostream>
 #include <random>
 #include <string>
-#include <thread>
-#include <variant>
 #include <vector>
 
 #include "qm.h"
@@ -298,14 +296,20 @@ namespace ts {
     void qmProcessor::setupData(int dThreadCount, int sThreadCount, seasonData data) {
         sdata = data;
         int tc2 = sdata.teamCount * sdata.teamCount;
-        uint64_t blockCount = sdata.unplayedCount > 5 ? qm::pow3(sdata.unplayedCount - 5) : 1;
-        tbMatches.reserve(tc2);
-        ntbMatches.reserve(tc2);
+        tbMatches.reserve(sThreadCount);
+        ntbMatches.reserve(sThreadCount);
         results.resize(2*tc2);
-        for (int i = 0; i < sdata.teamCount * sdata.teamCount; i++) {
-            tbMatches.emplace_back(blockCount);
-            ntbMatches.emplace_back(blockCount);
+        done = std::vector<std::atomic<bool>>(sThreadCount);
+        for (int i = 0; i < sThreadCount; i++) {
+            tbMatches.emplace_back(tc2);
+            ntbMatches.emplace_back(tc2);
         }
+
+        for (int i = 0; i < sThreadCount; i++) {
+            done[i] = false;
+        }
+
+        sThreads = sThreadCount;
 
         for (int i = 0; i < sdata.unplayedCount; i++) {
             unsigned long long matchMask = 0;
@@ -340,24 +344,57 @@ namespace ts {
     void qmProcessor::processSeason(const std::vector<int> &order, const std::vector<int> &highSeed, const std::vector<int> &lowSeed, unsigned long long season, const long long u, int threadPos) {
         for (int i = 0; i < sdata.teamCount; i++) {
             if (const int team = order[i]; highSeed[team] == lowSeed[team]) {
-                const unsigned long long idx = qm::toTernary(u, sdata.unplayedCount);
-                ntbMatches.at(team*sdata.teamCount + highSeed[team])[idx/243][idx%243] = true;//Thread unsafe, fix!!!
+                ntbMatches.at(threadPos).at(team*sdata.teamCount + highSeed[team]).push_back(u);
             } else {
                 for (int seed = highSeed[team]; seed <= lowSeed[team]; seed++) {
-                    const unsigned long long idx = qm::toTernary(u, sdata.unplayedCount);
-                    tbMatches.at(team*sdata.teamCount + seed)[idx/243][idx%243] = true;//Thread unsafe, fix!!!
+                    tbMatches.at(threadPos).at(team*sdata.teamCount + seed).push_back(u);
                 }
             }
         }
     }
 
     void qmProcessor::processData(int pos, int threadCount, unsigned long long total) {
-        int start = pos * sdata.teamCount * sdata.teamCount / threadCount;
-        int end = (pos + 1) * sdata.teamCount * sdata.teamCount / threadCount;
+        //use threads to join
+
+        int mask = 1;
+        while (mask < threadCount) {
+            if ((pos&mask)==0 && (pos^mask)<threadCount) {
+                while (true) {
+                    if (done[pos^mask].load()) {
+                        break;
+                    }
+                }
+                for (int i = 0; i < sdata.teamCount * sdata.teamCount; i++) {
+                    for (auto u : tbMatches[pos^mask][i]) {
+                        tbMatches[pos][i].push_back(u);
+                    }
+                    for (auto u : ntbMatches[pos^mask][i]) {
+                        ntbMatches[pos][i].push_back(u);
+                    }
+                }
+                mask <<= 1;
+            }else {
+                done[pos] = true;
+                break;
+            }
+        }
+
+        if (pos == 0) {
+            done[0] = true;
+        }
+
+        while (true) {
+            if (done[0].load()) {
+                break;
+            }
+        }
+
+        const int start = pos * sdata.teamCount * sdata.teamCount / threadCount;
+        const int end = (pos + 1) * sdata.teamCount * sdata.teamCount / threadCount;
 
         for (int i = start; i < end; i++) {
-            results[i*2] = qm::getStrFromQm(sdata.unplayedCount, &tbMatches.at(i), posNames, negNames);
-            results[i*2 + 1] = qm::getStrFromQm(sdata.unplayedCount, &ntbMatches.at(i), posNames, negNames);
+            results[i*2] = qm::getStrFromQm(sdata.unplayedCount, tbMatches.at(0).at(i), posNames, negNames);
+            results[i*2 + 1] = qm::getStrFromQm(sdata.unplayedCount, ntbMatches.at(0).at(i), posNames, negNames);
         }
     }
 
@@ -378,20 +415,27 @@ namespace ts {
 
     void narrowQmProcessor::setupData(int dThreadCount, int sThreadCount, seasonData data) {
         sdata = data;
-        uint64_t blockCount = sdata.unplayedCount > 5 ? qm::pow3(sdata.unplayedCount - 5) : 1;
-        tbMatches.reserve(sdata.teamCount);
-        ntbMatches.reserve(sdata.teamCount);
+        tbMatches.resize(dThreadCount);
+        ntbMatches.resize(dThreadCount);
         results.resize(2*sdata.teamCount);
-        for (int i = 0; i < sdata.teamCount; i++) {
-            tbMatches.emplace_back(blockCount);
-            ntbMatches.emplace_back(blockCount);
+        done = std::vector<std::atomic<bool>>(dThreadCount);
+
+        for (int j = 0; j < dThreadCount; j++) {
+            tbMatches[j].resize(sdata.teamCount);
+            ntbMatches[j].resize(sdata.teamCount);
         }
+
+        for (int i = 0; i < sdata.teamCount; i++) {
+            done[i] = false;
+        }
+
+        sThreads = sThreadCount;
 
         for (int i = 0; i < sdata.unplayedCount; i++) {
             unsigned long long matchMask = 0;
             unsigned long long y = sdata.unplayed;
             for (int j = 0; j < i+1; j++) {
-                unsigned long long z = y & y-1LL;
+                const unsigned long long z = y & y-1LL;
                 matchMask = y-z;
                 y = z;
             }
@@ -420,22 +464,53 @@ namespace ts {
     void narrowQmProcessor::processSeason(const std::vector<int> &order, const std::vector<int> &highSeed, const std::vector<int> &lowSeed, unsigned long long season, const long long u, int threadPos) {
         for (int i = 0; i < sdata.teamCount; i++) {
             if (const int team = order[i]; highSeed[team] >= targetMinSeed && lowSeed[team] <= targetMaxSeed) {
-                const unsigned long long idx = qm::toTernary(u, sdata.unplayedCount);
-                ntbMatches.at(team)[idx/243][idx%243] = true;
+                ntbMatches.at(threadPos).at(team).push_back(u);
             } else if (highSeed[team] >= targetMinSeed && highSeed[team] <= targetMaxSeed || lowSeed[team] >= targetMinSeed && lowSeed[team] <= targetMaxSeed){
-                const unsigned long long idx = qm::toTernary(u, sdata.unplayedCount);
-                tbMatches.at(team)[idx/243][idx%243] = true;
+                tbMatches.at(threadPos).at(team).push_back(u);
             }
         }
     }
 
     void narrowQmProcessor::processData(int pos, int threadCount, unsigned long long total) {
+        int mask = 1;
+        while (mask < threadCount) {
+            if ((pos&mask)==0 && (pos^mask)<threadCount) {
+                while (true) {
+                    if (done[pos^mask].load()) {
+                        break;
+                    }
+                }
+                for (int i = 0; i < sdata.teamCount; i++) {
+                    for (auto u : tbMatches[pos^mask][i]) {
+                        tbMatches[pos][i].push_back(u);
+                    }
+                    for (auto u : ntbMatches[pos^mask][i]) {
+                        ntbMatches[pos][i].push_back(u);
+                    }
+                }
+                mask <<= 1;
+            } else {
+                done[pos] = true;
+                break;
+            }
+        }
+
+        if (pos == 0) {
+            done[0] = true;
+        }
+
+        while (true) {
+            if (done[0].load()) {
+                break;
+            }
+        }
+
         int start = pos * sdata.teamCount / threadCount;
         int end = (pos + 1) * sdata.teamCount / threadCount;
 
         for (int i = start; i < end; i++) {
-            results[i*2] = qm::getStrFromQm(sdata.unplayedCount, &tbMatches.at(i), posNames, negNames);
-            results[i*2 + 1] = qm::getStrFromQm(sdata.unplayedCount, &ntbMatches.at(i), posNames, negNames);
+            results[i*2] = qm::getStrFromQm(sdata.unplayedCount, tbMatches[0].at(i), posNames, negNames);
+            results[i*2 + 1] = qm::getStrFromQm(sdata.unplayedCount, ntbMatches[0].at(i), posNames, negNames);
         }
     }
 
