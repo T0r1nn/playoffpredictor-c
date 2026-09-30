@@ -323,17 +323,17 @@ namespace qm {
     static std::vector<unsigned long long> calcSparseQm(const int n, const std::vector<unsigned long long> &terms) {
         HashSet S;
         HashSet S2;
-        for (const unsigned long long term : terms) {
+        for (const unsigned long long term : terms) {//O(d * n * 2^n)
             S.insert(convert(term, n));
         }
 
         std::vector<unsigned long long> primes;
-        for (int w = 0; w < n; w++) {
+        for (int w = 0; w < n; w++) {//n loops
             std::vector<unsigned long long> news;
             news.reserve(S.contents.size());
-            for (const auto s : S.contents) {
+            for (const auto s : S.contents) {//super complex, in obsidian
                 auto ss = s;
-                for (int i = 0; i < n; i++) {
+                for (int i = 0; i < n; i++) { //n
                     if (const auto type = ss & 3; type == 0) {
                         if (const unsigned long long t = s ^ (1ULL << (2 * i)); S.find(t)) {
                             unsigned long long u = s ^ (2ULL << (2 * i));
